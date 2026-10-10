@@ -5,14 +5,18 @@ import { startSession } from "@/lib/services/sessions";
 
 export const runtime = "nodejs";
 
-const bodySchema = z.strictObject({
-  topicId: z.string().min(1),
-  mode: z.enum(["learn", "review"]),
-  skillIds: z.array(z.string()).max(3).optional(),
-  size: z.number().int().min(1).max(3).optional(),
-});
+const bodySchema = z
+  .strictObject({
+    topicId: z.string().min(1),
+    mode: z.enum(["learn", "review"]).optional(),
+    purpose: z.enum(["learn", "practice", "check", "review"]).optional(),
+    skillIds: z.array(z.string()).max(3).optional(),
+    size: z.number().int().min(1).max(3).optional(),
+  })
+  .refine((b) => b.mode || b.purpose, { message: "mode or purpose is required" });
 
 export const POST = route({ mutation: true }, async (req: Request) => {
   const body = await readJson(req, bodySchema);
-  return ok(startSession(getAppContext(), body), 201);
+  const res = startSession(getAppContext(), body);
+  return ok(res, res.resumed ? 200 : 201);
 });

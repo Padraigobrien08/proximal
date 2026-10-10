@@ -5,11 +5,11 @@ import { flagAssessment } from "@/lib/services/assessments";
 
 export const runtime = "nodejs";
 
-const bodySchema = z.strictObject({ reason: z.string().trim().min(3).max(500) });
+const bodySchema = z.strictObject({ reason: z.string().trim().max(500).optional() });
 
 export const POST = route({ mutation: true }, async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await readJson(req, bodySchema);
-  const res = flagAssessment(getAppContext(), id, body.reason);
+  const res = flagAssessment(getAppContext(), id, body.reason?.trim() || "No reason given");
   return ok({ assessmentId: res.assessment.id, excluded: res.assessment.excluded, skillId: res.skillId, evidenceState: res.state.evidenceState });
 });

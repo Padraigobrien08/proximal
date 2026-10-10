@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { useApiResource } from "../useApiResource";
 import { api, ApiError } from "../api";
-import { ProviderBadge, type ProviderInfo } from "../ProviderBadge";
+import type { ProviderInfo } from "../ProviderBadge";
+import { notifyDataChanged } from "../dataEvents";
+import { ProviderNotice } from "../workspace";
 import { Button, ButtonLink, Card, Loading, Notice, Pill } from "../ui";
 
 interface CourseData {
@@ -36,7 +38,7 @@ interface CourseData {
 type UnitEdit = { title?: string; objective?: string; delete?: boolean; skills: Record<string, { objective?: string; required?: boolean }> };
 
 export function CourseScreen({ courseId }: { courseId: string }) {
-  const { data, error, reload: load, setData } = useApiResource<CourseData>(`/api/courses/${courseId}`);
+  const { data, error, setData } = useApiResource<CourseData>(`/api/courses/${courseId}`);
   const [notice, setNotice] = useState<{ tone: "good" | "error" | "warn"; text: string } | null>(null);
   const [edits, setEdits] = useState<Record<string, UnitEdit>>({});
   const [adding, setAdding] = useState({ topicTitle: "", title: "", objective: "", pages: "" });
@@ -64,6 +66,7 @@ export function CourseScreen({ courseId }: { courseId: string }) {
       setData(await api<CourseData>(`/api/courses/${courseId}/draft`, { method: "PATCH", json: { units, addUnits: extra?.addUnits ?? [] } }));
       setEdits({});
       setNotice({ tone: "good", text: "Draft saved." });
+      notifyDataChanged();
       return true;
     } catch (err) {
       setNotice({ tone: "error", text: err instanceof ApiError ? err.message : "Save failed." });
@@ -109,7 +112,7 @@ export function CourseScreen({ courseId }: { courseId: string }) {
     try {
       await api(`/api/courses/${courseId}/approve`, { method: "POST", json: {} });
       setNotice({ tone: "good", text: "Curriculum approved. Objectives are now frozen." });
-      load();
+      notifyDataChanged();
     } catch (err) {
       setNotice({ tone: "error", text: err instanceof ApiError ? err.message : "Approval failed." });
     } finally {
@@ -123,13 +126,13 @@ export function CourseScreen({ courseId }: { courseId: string }) {
 
   return (
     <div className="space-y-6">
-      <ProviderBadge provider={data.provider} />
+      <ProviderNotice provider={data.provider} />
       <div>
-        <Link href="/" className="text-sm text-teal hover:underline">
-          ← Home
+        <Link href="/courses" className="text-sm text-teal hover:underline">
+          ← Courses
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="font-serif text-3xl font-semibold">{data.course.title}</h1>
+          <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[30px]">{data.course.title}</h1>
           {data.course.isDemo && <Pill tone="warn">Demo course</Pill>}
           <Pill tone={draft ? "warn" : "good"}>{draft ? "Draft – not yet approved" : "Approved"}</Pill>
         </div>
@@ -151,7 +154,7 @@ export function CourseScreen({ courseId }: { courseId: string }) {
       {data.topics.map((t) => (
         <Card key={t.id}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-serif text-xl font-semibold">{t.title}</h2>
+            <h2 className="text-[17px] font-semibold tracking-tight">{t.title}</h2>
             {!draft && <ButtonLink href={`/topics/${t.id}`} variant="secondary">Open topic</ButtonLink>}
           </div>
           <ol className="mt-4 space-y-4">

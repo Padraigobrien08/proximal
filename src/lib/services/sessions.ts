@@ -1,6 +1,6 @@
 // Learning sessions and independent review checkpoints. Server enforces phase, ordinal and eligibility.
 import { qualifiesAsIndependent } from "../domain/evidence";
-import { EVIDENCE_LABELS, dueLabel } from "../domain/labels";
+import { EVIDENCE_LABELS, dueLabel, formatDateTime, relativeWhen } from "../domain/labels";
 import { selectQuestion } from "../domain/selection";
 import type { ExposureKind, QuestionPrivate, QuestionPublic, SessionMode } from "../domain/types";
 import {
@@ -29,9 +29,12 @@ import {
   updateSession,
   type AssessmentRow,
   type AttemptRow,
+  type SessionPurpose,
   type SessionQuestionRow,
   type SessionRow,
+  listAttemptsForSession,
 } from "../db/repo";
+import { isUnfinished, type PlanSession } from "../domain/plan";
 import { MAX_ANSWER_CHARS } from "../llm/schemas";
 import { ProviderError } from "../llm/types";
 import { assessAttempt, type AssessResult } from "./assessments";
@@ -46,9 +49,16 @@ export const DEFAULT_CHECKPOINT_QUESTIONS = 2;
 
 export interface StartSessionInput {
   topicId: string;
-  mode: SessionMode;
+  /** Legacy shape: learn | review. `purpose` is preferred. */
+  mode?: SessionMode;
+  /** learn (teach first), practice (targeted supported repair), check (independent diagnostic), review (due revisit). */
+  purpose?: SessionPurpose;
   skillIds?: string[];
   size?: number;
+}
+
+export function modeForPurpose(p: SessionPurpose): SessionMode {
+  return p === "check" || p === "review" ? "review" : "learn";
 }
 
 function prioritiseForReview(ctx: AppContext, skillIds: string[]): string[] {
@@ -68,9 +78,11 @@ function prioritiseForReview(ctx: AppContext, skillIds: string[]): string[] {
     .map((x) => x.id);
 }
 
-export function startSession(ctx: AppContext, input: StartSessionInput): { sessionId: string } {
+export function startSession(ctx: AppContext, input: StartSessionInput): { sessionId: string; resumed: boolean } {
   const topic = getTopic(ctx.db, input.topicId);
   if (!topic) throw notFound("Topic");
+  if (!input.mode && !input.purpose) throw new AppError("validation", "Choose learn, practice, check or review.");
+  const mode: SessionMode = input.purpose ? modeForPurpose(input.purpose) : input.mode!;
   const course = getCourse(ctx.db, topic.courseId)!;
   if (course.status !== "approved") throw new AppError("stale_phase", "Approve this draft curriculum before studying it.");
 
@@ -83,8 +95,12 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
   }
   const withQuestions = skillIds.filter((id) => listQuestionsForSkill(ctx.db, id).some((q) => q.status !== "excluded"));
 
+  // Never start a duplicate: an unfinished active session of the same kind for this topic is resumed instead.
+  const existing = findResumableSession(ctx, topic.id, mode, input.skillIds);
+  if (existing) return { sessionId: existing, resumed: true };
+
   let chosen: string[];
-  if (input.mode === "review") {
+  if (mode === "review") {
     if (withQuestions.length === 0) {
       throw new AppError(
         "unavailable_reviewed_content",
@@ -97,18 +113,31 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
     chosen = withQuestions;
   }
 
+  const now = ctx.clock.now();
+  const purpose: SessionPurpose =
+    input.purpose ??
+    (mode === "learn"
+      ? "learn"
+      : chosen.some((id) => {
+            const st = currentSkillState(ctx, id);
+            return st.dueAt !== null && st.dueAt <= now && st.lastIndependentAt !== null;
+          })
+        ? "review"
+        : "check");
+
   return ctx.db.transaction(() => {
     const sessionId = insertSession(ctx.db, {
       topicId: topic.id,
-      mode: input.mode,
+      mode,
+      purpose,
       isDemo: course.isDemo,
       status: "active",
-      phase: input.mode === "review" ? "checkpoint" : "learning",
-      createdAt: ctx.clock.now(),
+      phase: mode === "review" ? "checkpoint" : "learning",
+      createdAt: now,
     });
     chosen.forEach((skillId, ordinal) => {
       const questions = listQuestionsForSkill(ctx.db, skillId);
-      const pick = selectQuestion(questions, lastAttemptByFamily(ctx.db, skillId));
+      const pick = selectQuestion(questions, lastAttemptByFamily(ctx.db, skillId), purpose === "practice" ? "practice" : "check");
       if (!pick) return;
       const q = questions.find((x) => x.id === pick.questionId)!;
       const frozen: QuestionPrivate = {
@@ -131,14 +160,77 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
         questionId: q.id,
         skillId,
         ordinal,
-        checkpointIndex: input.mode === "review" ? ordinal : null,
-        phase: input.mode === "review" ? "checkpoint" : "practice",
+        checkpointIndex: mode === "review" ? ordinal : null,
+        phase: mode === "review" ? "checkpoint" : "practice",
         frozen,
         repeatedFamily: pick.repeatedFamily,
       });
     });
-    return { sessionId };
+    return { sessionId, resumed: false };
   })();
+}
+
+/** Active, unfinished session of the same mode for this topic (and covering the requested skills, if given). */
+function findResumableSession(ctx: AppContext, topicId: string, mode: SessionMode, skillIds?: string[]): string | null {
+  const rows = ctx.db
+    .prepare("SELECT id FROM sessions WHERE topic_id = ? AND mode = ? AND status = 'active' ORDER BY created_at DESC")
+    .all(topicId, mode) as { id: string }[];
+  for (const r of rows) {
+    const summary = summariseSession(ctx, r.id);
+    if (!summary || !isUnfinished(summary)) continue;
+    if (skillIds?.length && !skillIds.every((id) => summary.skillIds.includes(id))) continue;
+    return r.id;
+  }
+  return null;
+}
+
+/** Persisted session facts used by the plan (resume tier) and duplicate prevention. */
+export function summariseSession(ctx: AppContext, sessionId: string): PlanSession | null {
+  const session = getSession(ctx.db, sessionId);
+  if (!session) return null;
+  const topic = getTopic(ctx.db, session.topicId)!;
+  const sqs = listSessionQuestions(ctx.db, sessionId);
+  const attempts = listAttemptsForSession(ctx.db, sessionId);
+  const exposures = listExposures(ctx.db, sessionId);
+  const originals = sqs.map((sq) => attempts.find((a) => a.sessionQuestionId === sq.id && a.phase === "original") ?? null);
+  const answered = originals.filter(Boolean) as AttemptRow[];
+  const unassessed = answered.filter((a) => !getAssessmentForAttempt(ctx.db, a.id) && !a.feedbackWithheld);
+  const unresolved: string[] = [];
+  if (session.mode === "review") {
+    sqs.forEach((sq, i) => {
+      const o = originals[i];
+      if (!o) return;
+      const asm = getAssessmentForAttempt(ctx.db, o.id);
+      if (!asm || asm.excluded || asm.outcome === "pass" || asm.outcome === "uncertain") return;
+      const repaired = attempts.some(
+        (a) => a.sessionQuestionId === sq.id && a.phase === "repair" && getAssessmentForAttempt(ctx.db, a.id)?.outcome === "pass",
+      );
+      if (!repaired && !unresolved.includes(sq.skillId)) unresolved.push(sq.skillId);
+    });
+  }
+  const lastActivityAt = Math.max(
+    session.createdAt,
+    ...attempts.map((a) => a.submittedAt),
+    ...exposures.map((e) => e.recordedAt),
+  );
+  return {
+    sessionId,
+    courseId: topic.courseId,
+    topicId: topic.id,
+    topicTitle: topic.title,
+    mode: session.mode,
+    purpose: session.purpose,
+    phase: session.phase,
+    lastActivityAt,
+    answered: answered.length,
+    total: sqs.length,
+    pendingAssessments: unassessed.length,
+    providerErrors: unassessed.filter((a) => a.status === "provider_error").length,
+    feedbackReleased: session.feedbackReleasedAt !== null,
+    unresolvedRepairSkillIds: unresolved,
+    skillIds: [...new Set(sqs.map((sq) => sq.skillId))],
+    remainingQuestions: session.mode === "learn" ? Math.max(0, sqs.length - session.currentOrdinal) : 0,
+  };
 }
 
 // ---------------------------------------------------------------- helpers
@@ -167,7 +259,7 @@ function toPublic(q: QuestionPrivate): QuestionPublic {
   return { id: q.id, skillId: q.skillId, taskType: q.taskType, prompt: q.prompt };
 }
 
-function feedbackVisible(ctx: AppContext, sessionId: string, attemptId: string): boolean {
+export function feedbackVisible(ctx: Pick<AppContext, "db">, sessionId: string, attemptId: string): boolean {
   return listExposures(ctx.db, sessionId).some((e) => e.kind === "feedback" && e.contentRef.includes(`attempt:${attemptId}`));
 }
 
@@ -193,7 +285,7 @@ export interface FeedbackView {
   referenceSummary: string;
 }
 
-function feedbackView(a: AssessmentRow, q: QuestionPrivate): FeedbackView {
+export function feedbackView(a: AssessmentRow, q: QuestionPrivate): FeedbackView {
   return {
     assessmentId: a.id,
     outcome: a.outcome,
@@ -344,11 +436,19 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
                 isTransfer: sq.frozen.isTransfer,
               })
             : false;
+        const repaired = listAttemptsForSessionQuestion(ctx.db, sq.id).some(
+          (a) => a.phase === "repair" && getAssessmentForAttempt(ctx.db, a.id)?.outcome === "pass",
+        );
         return {
           skillId,
+          sessionQuestionId: sq.id,
           objective: skill.objective,
           taskType: sq.frozen.taskType,
           answered: !!original,
+          originalExcluded: !!asm?.excluded,
+          repaired,
+          dueWhen: state.dueAt !== null ? relativeWhen(state.dueAt, now, ctx.timezone) : null,
+          dueExact: state.dueAt !== null ? formatDateTime(state.dueAt, ctx.timezone) : null,
           originalOutcome: asm ? asm.outcome : null,
           originalIndependent: independent,
           evidenceState: state.evidenceState,
@@ -363,6 +463,7 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
     };
   }
 
+  const resultSummary = results ? summariseResults(results.skills, topic.title) : null;
   const currentItem = current ? items.find((i) => i.sessionQuestionId === current.id) ?? null : null;
   const exps = listExposures(ctx.db, session.id);
 
@@ -370,6 +471,8 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
     session: {
       id: session.id,
       mode: session.mode,
+      purpose: session.purpose,
+      modeLabel: modeLabel(session),
       phase: session.phase,
       status: session.status,
       isDemo: session.isDemo,
@@ -395,7 +498,7 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
             skipped: i.skipped,
           }))
         : items,
-    results,
+    results: results ? { ...results, ...resultSummary! } : null,
     explanationsShown: exps.filter((e) => e.kind === "explanation").map((e) => e.contentRef),
     // Checked fixture explanations already shown (exposure recorded) can be re-displayed on reload.
     explanations: Object.fromEntries(
@@ -410,6 +513,53 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
 }
 
 export type SessionView = ReturnType<typeof getSessionView>;
+
+/** What the learner is doing now, in plain words. Help never changes this label retroactively. */
+function modeLabel(session: SessionRow): string {
+  if (session.mode === "review") {
+    if (session.phase === "repair") return "Supported practice";
+    return session.purpose === "review" ? "Review" : "Independent check";
+  }
+  return session.purpose === "practice" ? "Supported practice" : "Learn";
+}
+
+const NOUN: Record<string, string> = { explain: "explanation", calculate: "calculation", derive: "derivation", apply: "application" };
+
+/** Plain-language lead and the single next action for a finished checkpoint. */
+function summariseResults(
+  skills: { skillId: string; taskType: string; answered: boolean; originalOutcome: string | null; originalIndependent: boolean; originalExcluded: boolean; repaired: boolean; sessionQuestionId: string }[],
+  topicTitle: string,
+) {
+  const sentences: string[] = [];
+  let gap: { skillId: string; sessionQuestionId: string; noun: string } | null = null;
+  for (const s of skills) {
+    const noun = NOUN[s.taskType] ?? "answer";
+    if (!s.answered) continue;
+    if (s.originalOutcome === null) sentences.push(`Your ${noun} answer is saved and still being assessed.`);
+    else if (s.originalExcluded) sentences.push(`The ${noun} judgement is excluded from your learning record.`);
+    else if (s.originalOutcome === "uncertain") sentences.push(`There wasn't enough evidence to judge the ${noun}.`);
+    else if (s.originalOutcome === "pass") {
+      sentences.push(
+        s.originalIndependent
+          ? s.taskType === "explain"
+            ? `You explained ${topicTitle} independently.`
+            : `You completed the ${noun} independently.`
+          : `The ${noun} met the criteria with support.`,
+      );
+    } else if (s.repaired) {
+      sentences.push(`${noun.charAt(0).toUpperCase()}${noun.slice(1)} completed with support. A fresh independent check is scheduled.`);
+    } else {
+      sentences.push(`The ${noun} needs practice.`);
+      gap ??= { skillId: s.skillId, sessionQuestionId: s.sessionQuestionId, noun };
+    }
+  }
+  return {
+    summary: sentences.join(" "),
+    nextAction: gap
+      ? { kind: "practise" as const, label: `Practise ${gap.noun}`, sessionQuestionId: gap.sessionQuestionId }
+      : { kind: "overview" as const, label: "Return to overview", sessionQuestionId: null },
+  };
+}
 
 // ---------------------------------------------------------------- answers
 

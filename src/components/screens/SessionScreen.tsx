@@ -1,27 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useApiResource } from "../useApiResource";
-import type { EvidenceState } from "@/lib/domain/types";
+import { ArrowRight, ChevronDown, CircleHelp, LifeBuoy } from "lucide-react";
+import type { EvidenceState, TaskType } from "@/lib/domain/types";
 import { api, ApiError } from "../api";
+import { CriterionFeedback, type FeedbackData } from "../CriterionFeedback";
+import { notifyDataChanged } from "../dataEvents";
 import { EvidenceLabel } from "../EvidenceLabel";
+import { FlagJudgementButton } from "../FlagDialog";
 import { MathText } from "../MathText";
-import { ProviderBadge, type ProviderInfo } from "../ProviderBadge";
-import { Button, ButtonLink, Card, Loading, Notice, Pill, newSubmissionKey } from "../ui";
-
-interface Feedback {
-  assessmentId: string;
-  outcome: "pass" | "partial" | "fail" | "uncertain";
-  providerMode: string;
-  providerModel: string | null;
-  validity: string;
-  excluded: boolean;
-  problems: string[];
-  criteria: { criterionId: string; description: string; essential: boolean; fatalIfNotMet: boolean; status: string; answerQuote: string | null; briefReason: string }[];
-  possibleMisconception: string | null;
-  referenceSummary: string;
-}
+import type { ProviderInfo } from "../ProviderBadge";
+import { useApiResource } from "../useApiResource";
+import { ProviderNotice } from "../workspace";
+import { Notice, Pill, newSubmissionKey } from "../ui";
 
 interface Attempt {
   id: string;
@@ -34,7 +27,7 @@ interface Attempt {
   supportedOnly: boolean;
   lastError: string | null;
   feedbackWithheld: boolean;
-  feedback: Feedback | null;
+  feedback: FeedbackData | null;
 }
 
 interface Item {
@@ -42,7 +35,7 @@ interface Item {
   ordinal: number;
   repeatedFamily: boolean;
   questionStatus: string;
-  question: { id: string; skillId: string; taskType: string; prompt: string };
+  question: { id: string; skillId: string; taskType: TaskType; prompt: string };
   skill: { id: string; objective: string };
   unit: { id: string; title: string; objective: string };
   hintCount: number;
@@ -53,8 +46,32 @@ interface Item {
   offerAlternatives: boolean;
 }
 
+interface ResultSkill {
+  skillId: string;
+  sessionQuestionId: string;
+  objective: string;
+  taskType: TaskType;
+  answered: boolean;
+  originalOutcome: "pass" | "partial" | "fail" | "uncertain" | null;
+  originalIndependent: boolean;
+  originalExcluded: boolean;
+  repaired: boolean;
+  evidenceState: EvidenceState;
+  reassessmentNeeded: boolean;
+  dueWhen: string | null;
+  dueExact: string | null;
+}
+
 interface SessionData {
-  session: { id: string; mode: "learn" | "review"; phase: "checkpoint" | "results" | "repair" | "learning"; status: "active" | "ended"; isDemo: boolean };
+  session: {
+    id: string;
+    mode: "learn" | "review";
+    purpose: "learn" | "practice" | "check" | "review";
+    modeLabel: string;
+    phase: "checkpoint" | "results" | "repair" | "learning";
+    status: "active" | "ended";
+    isDemo: boolean;
+  };
   topic: { id: string; title: string };
   course: { id: string; title: string; isDemo: boolean };
   provider: ProviderInfo;
@@ -65,18 +82,9 @@ interface SessionData {
     allAssessed: boolean;
     pendingAttemptIds: string[];
     feedbackReleased: boolean;
-    skills: {
-      skillId: string;
-      objective: string;
-      taskType: string;
-      answered: boolean;
-      originalOutcome: string | null;
-      originalIndependent: boolean;
-      evidenceState: EvidenceState;
-      reassessmentNeeded: boolean;
-      transferCovered: boolean;
-      dueLabel: string;
-    }[];
+    skills: ResultSkill[];
+    summary: string;
+    nextAction: { kind: "practise" | "overview"; label: string; sessionQuestionId: string | null };
   };
   explanations: Record<string, { unitTitle: string; explanation: string; workedExample: string | null }>;
   units: { unitId: string; title: string; objective: string }[];
@@ -84,92 +92,123 @@ interface SessionData {
   demoExamples: Record<string, { label: string; answer: string }[]>;
 }
 
-const STATUS_TEXT: Record<string, string> = { met: "Met", partial: "Partly met", not_met: "Not met", uncertain: "Uncertain" };
-const OUTCOME_TEXT: Record<string, string> = {
-  pass: "All essential criteria met",
-  partial: "Some essential criteria met",
-  fail: "Essential criteria not met",
-  uncertain: "Uncertain – no effect on evidence",
+const TASK_LABEL: Record<TaskType, string> = {
+  explain: "Explanation",
+  calculate: "Calculation",
+  derive: "Derivation",
+  apply: "Application",
 };
 
 function isFullItems(items: SessionData["items"]): items is Item[] {
   return items.length === 0 || "sessionQuestionId" in items[0];
 }
 
-export function SessionScreen({ sessionId }: { sessionId: string }) {
-  const { data, error, reload: load, setData } = useApiResource<SessionData>(`/api/sessions/${sessionId}`);
-  const [flash, setFlash] = useState<{ tone: "good" | "info" | "error" | "warn"; text: string } | null>(null);
+type Flash = { tone: "good" | "info" | "error" | "warn"; text: string } | null;
 
-  // Poll while an assessment is in flight (never re-calls the provider for assessed attempts).
+const primaryBtn =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-[7px] bg-teal px-4 text-sm font-medium text-white transition-colors hover:bg-teal-dark disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+const secondaryBtn =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-[7px] border border-line-strong bg-card px-4 text-sm font-medium text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+
+export function SessionScreen({ sessionId }: { sessionId: string }) {
+  const router = useRouter();
+  const { data, error, reload, setData } = useApiResource<SessionData>(`/api/sessions/${sessionId}`);
+  const [flash, setFlash] = useState<Flash>(null);
+
+  // Poll only while an assessment is in flight. Responses never include unreleased judgements.
   const inFlight =
     !!data &&
-    ((data.results && !data.results.allAssessed) ||
+    ((data.results && !data.results.allAssessed && data.results.pendingAttemptIds.length > 0) ||
       (isFullItems(data.items) && data.items.some((i) => i.attempts.some((a) => a.status === "assessing"))));
   useEffect(() => {
     if (!inFlight) return;
-    const t = setInterval(load, 2500);
+    const t = setInterval(reload, 2500);
     return () => clearInterval(t);
-  }, [inFlight, load]);
+  }, [inFlight, reload]);
 
-  async function end(scope: "checkpoint" | "session") {
+  async function end(scope: "checkpoint" | "session", thenHome = false) {
     try {
-      setData({ ...(await api<SessionData>(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope } })), demoExamples: {} });
-      setFlash({ tone: "info", text: scope === "checkpoint" ? "Checkpoint ended. Unanswered questions stay unassessed." : "Session ended. Completed attempts are kept." });
+      const view = await api<SessionData>(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope } });
+      notifyDataChanged();
+      if (thenHome) return router.push("/");
+      setData({ ...view, demoExamples: {} });
+      setFlash({
+        tone: "info",
+        text:
+          scope === "checkpoint"
+            ? "Check finished early. Saved answers are kept; unanswered questions stay unassessed."
+            : "Session ended. Your saved answers are kept.",
+      });
     } catch (err) {
       setFlash({ tone: "error", text: err instanceof ApiError ? err.message : "Could not end the session." });
     }
   }
 
-  if (error) return <Notice tone="error">{error}</Notice>;
-  if (!data) return <Loading />;
+  if (error && !data) {
+    return (
+      <Notice tone="error" title="We couldn't load this session.">
+        {error}{" "}
+        <button type="button" className="underline" onClick={reload}>
+          Retry
+        </button>
+      </Notice>
+    );
+  }
+  if (!data) return <div aria-busy="true" className="mx-auto h-[360px] max-w-[760px] rounded-xl border border-line bg-card" />;
 
   const { session } = data;
   const review = session.mode === "review";
-  const modeLabel = review ? "Independent review checkpoint" : "Learning session";
 
   return (
-    <div className="space-y-6">
-      <ProviderBadge provider={data.provider} />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Link href={`/topics/${data.topic.id}`} className="text-sm text-teal hover:underline">
-            ← {data.topic.title}
-          </Link>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <h1 className="font-serif text-2xl font-semibold">{modeLabel}</h1>
-            <Pill tone={review ? "teal" : "info"}>{review ? "Review mode" : "Learning mode"}</Pill>
-            {session.status === "ended" && <Pill>Ended</Pill>}
-            {data.course.isDemo && <Pill tone="warn">Demo</Pill>}
+    <div className="mx-auto max-w-[760px] space-y-6">
+      <header className="space-y-3">
+        <Link href={`/topics/${data.topic.id}`} className="text-sm text-teal hover:underline">
+          ← {data.topic.title}
+        </Link>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-[26px] font-semibold leading-tight tracking-tight" data-testid="session-mode">
+                {session.modeLabel}
+              </h1>
+              {session.status === "ended" && <Pill>Ended</Pill>}
+              {data.course.isDemo && <Pill tone="warn">Demo</Pill>}
+            </div>
+            <p className="mt-1 text-sm text-muted" data-testid="progress">
+              {review
+                ? session.phase === "checkpoint"
+                  ? `Question ${Math.min(data.progress.answered + 1, data.progress.total)} of ${data.progress.total} · ${data.progress.answered} answer${data.progress.answered === 1 ? "" : "s"} saved`
+                  : `${data.progress.answered} of ${data.progress.total} answers saved`
+                : `${data.progress.total} practice question${data.progress.total === 1 ? "" : "s"}`}
+            </p>
           </div>
-          <p className="text-sm text-muted" data-testid="progress">
-            {review
-              ? `Question ${Math.min(data.progress.answered + (data.current ? 1 : 0), data.progress.total)} of ${data.progress.total} · ${data.progress.answered} answered`
-              : `${data.progress.total} practice question(s)`}
-          </p>
+          {session.status === "active" && (
+            <div className="flex flex-wrap gap-2">
+              {review && session.phase === "checkpoint" && (
+                <button type="button" onClick={() => end("checkpoint")} className={secondaryBtn}>
+                  Finish check early
+                </button>
+              )}
+              <button type="button" onClick={() => end("session")} className={secondaryBtn} data-testid="end-session">
+                End session
+              </button>
+            </div>
+          )}
         </div>
-        {session.status === "active" && (
-          <div className="flex gap-2">
-            {review && session.phase === "checkpoint" && (
-              <Button variant="secondary" onClick={() => end("checkpoint")}>
-                End checkpoint early
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => end("session")} data-testid="end-session">
-              End session
-            </Button>
-          </div>
-        )}
-      </div>
+        <ProviderNotice provider={data.provider} />
+      </header>
 
-      {flash && <Notice tone={flash.tone}>{flash.text}</Notice>}
+      <div aria-live="polite" role="status">
+        {flash && <Notice tone={flash.tone}>{flash.text}</Notice>}
+      </div>
 
       {review && session.phase === "checkpoint" && data.current && (
         <>
           <Notice>
-            Closed-book check: feedback is held back until every answer is saved, so early feedback cannot teach later answers. Help is
-            available, but using it makes that answer <strong>supported</strong> rather than independent.
+            Answer without hints or notes for an independent check. You can ask for help at any time; we&apos;ll record that support.
+            Feedback appears after all answers are saved.
           </Notice>
-          <QuestionCard
+          <QuestionPanel
             key={data.current.sessionQuestionId}
             sessionId={sessionId}
             item={data.current}
@@ -177,9 +216,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             demoExamples={data.demoExamples[data.current.question.id] ?? []}
             onSubmitted={(msg) => {
               setFlash({ tone: "good", text: msg });
-              load();
+              reload();
             }}
-            onChanged={load}
+            onChanged={reload}
           />
         </>
       )}
@@ -190,24 +229,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           data={data}
           onChanged={(msg) => {
             if (msg) setFlash({ tone: "info", text: msg });
-            load();
+            notifyDataChanged();
+            reload();
           }}
+          onReturnHome={() => end("session", true)}
         />
       )}
 
-      {review && session.phase === "repair" && isFullItems(data.items) && session.status === "active" && (
-        <section className="space-y-4" aria-labelledby="repair">
-          <h2 id="repair" className="font-serif text-xl font-semibold">
-            Correct an answer (supported practice)
+      {review && session.phase === "repair" && session.status === "active" && isFullItems(data.items) && (
+        <section className="space-y-4" aria-labelledby="repair-title">
+          <h2 id="repair-title" className="text-[17px] font-semibold tracking-tight">
+            Supported practice
           </h2>
           <p className="text-sm text-muted">
-            A corrected answer is saved as a new practice attempt. Your original answer and its result are kept, and a correction cannot
-            restore independent evidence.
+            A correction is saved as a new practice attempt and counts as supported. Your original answer and its result stay in your
+            record, and a fresh independent check is scheduled.
           </p>
           {data.items
             .filter((i) => i.answered)
             .map((i) => (
-              <QuestionCard
+              <QuestionPanel
                 key={i.sessionQuestionId}
                 sessionId={sessionId}
                 item={i}
@@ -215,34 +256,34 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 demoExamples={data.demoExamples[i.question.id] ?? []}
                 onSubmitted={(msg) => {
                   setFlash({ tone: "good", text: msg });
-                  load();
+                  notifyDataChanged();
+                  reload();
                 }}
-                onChanged={load}
+                onChanged={reload}
               />
             ))}
         </section>
       )}
 
-      {!review && <LearnFlow sessionId={sessionId} data={data} onChanged={load} setFlash={setFlash} />}
+      {!review && <LearnFlow sessionId={sessionId} data={data} onChanged={reload} setFlash={setFlash} />}
 
       {session.status === "ended" && (
-        <Card>
-          <p className="text-sm">This session has ended. Completed attempts and their evidence are saved.</p>
-          <div className="mt-3 flex gap-2">
-            <ButtonLink href={`/topics/${data.topic.id}`}>Back to topic</ButtonLink>
-            <ButtonLink href="/" variant="secondary">
-              Home
-            </ButtonLink>
-          </div>
-        </Card>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/" className={primaryBtn}>
+            Return to overview
+          </Link>
+          <Link href={`/topics/${data.topic.id}`} className={secondaryBtn}>
+            View topic evidence
+          </Link>
+        </div>
       )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------- question card
+// ---------------------------------------------------------------- question panel
 
-function QuestionCard({
+function QuestionPanel({
   sessionId,
   item,
   mode,
@@ -263,10 +304,16 @@ function QuestionCard({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [plain, setPlain] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [sourcePages, setSourcePages] = useState<{ label: string; page: number; text: string }[] | null>(null);
   const keyRef = useRef(newSubmissionKey());
+  const id = item.sessionQuestionId;
 
   async function submit(dontKnow = false) {
+    if (!dontKnow && answer.trim().length === 0) {
+      setErr("Write an answer first, or choose “I don't know”.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -275,7 +322,7 @@ function QuestionCard({
         {
           method: "POST",
           json: {
-            sessionQuestionId: item.sessionQuestionId,
+            sessionQuestionId: id,
             submissionKey: keyRef.current,
             answer: dontKnow ? "" : answer,
             dontKnow,
@@ -286,10 +333,14 @@ function QuestionCard({
       );
       keyRef.current = newSubmissionKey();
       setAnswer("");
-      const providerErr = res.result.assessment?.status === "provider_error" ? ` (assessment failed: ${res.result.assessment.message}; you can retry later)` : "";
-      onSubmitted(res.result.message + providerErr);
+      const failed =
+        res.result.assessment?.status === "provider_error"
+          ? ` The assessment didn't complete (${res.result.assessment.message}); you can retry it.`
+          : "";
+      onSubmitted(res.result.message + "." + failed);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not save your answer. It has not been lost; try again.");
+      // The same submission key is reused on resend, so a retry can never create a duplicate attempt.
+      setErr(e instanceof ApiError ? e.message : "Could not save your answer. Your text is still here; try again.");
     } finally {
       setBusy(false);
     }
@@ -300,7 +351,7 @@ function QuestionCard({
     try {
       const res = await api<{ content: { pages?: { label: string; page: number; text: string }[] } }>(`/api/sessions/${sessionId}/reveal`, {
         method: "POST",
-        json: { kind, sessionQuestionId: item.sessionQuestionId, hintIndex },
+        json: { kind, sessionQuestionId: id, hintIndex },
       });
       if (kind === "source") setSourcePages(res.content.pages ?? []);
       onChanged();
@@ -309,24 +360,22 @@ function QuestionCard({
     }
   }
 
-  const latest = item.attempts[item.attempts.length - 1];
   const nextHint = item.revealedHints.length;
   const helpUsed = item.revealedHints.length > 0 || item.revealedSolution !== null || sourcePages !== null;
 
   return (
-    <Card className="space-y-4" >
+    <section aria-labelledby={`prompt-${id}`} id={`question-${id}`} tabIndex={-1} className="space-y-4 rounded-xl border border-line bg-card p-5 sm:p-6">
       <div data-testid="question-card" data-question-id={item.question.id}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-          <span>{item.unit.title}</span>
-          <span>·</span>
-          <span>Skill: {item.skill.objective}</span>
-          {item.repeatedFamily && <Pill tone="warn">Repeated question family</Pill>}
+          <Pill tone="teal">{TASK_LABEL[item.question.taskType]} question</Pill>
+          <span>{item.skill.objective}</span>
+          {item.repeatedFamily && mode === "checkpoint" && <Pill tone="warn">Repeated question family</Pill>}
           {item.questionStatus === "authored_fixture" && <Pill>Authored fixture</Pill>}
         </div>
-        <p className="mt-3 font-serif text-lg leading-relaxed" data-testid="question-prompt">
+        <p id={`prompt-${id}`} className="mt-3 text-[17px] leading-relaxed" data-testid="question-prompt">
           {plain ? item.question.prompt : <MathText text={item.question.prompt} />}
         </p>
-        <button className="mt-1 text-xs text-teal underline" onClick={() => setPlain((p) => !p)}>
+        <button type="button" className="mt-1 min-h-8 text-xs text-teal underline" onClick={() => setPlain((p) => !p)}>
           {plain ? "Show formatted maths" : "Show plain text"}
         </button>
       </div>
@@ -334,26 +383,28 @@ function QuestionCard({
       {mode !== "checkpoint" && item.attempts.length > 0 && (
         <div className="space-y-3">
           {item.attempts.map((a) => (
-            <AttemptBlock key={a.id} attempt={a} onRetried={onChanged} />
+            <AttemptBlock key={a.id} attempt={a} onChanged={onChanged} />
           ))}
         </div>
       )}
 
       {(item.revealedHints.length > 0 || item.revealedSolution || sourcePages) && (
-        <div className="space-y-2 rounded-lg border border-sky-ink/20 bg-sky-soft p-3 text-sm" data-testid="help-content">
+        <div className="space-y-2 rounded-lg border border-amber-ink/20 bg-amber-soft p-3 text-sm" data-testid="help-content">
+          <p className="text-xs font-medium text-amber-ink">Support recorded for this skill in this session</p>
           {item.revealedHints.map((h) => (
             <p key={h.index}>
-              <strong>Hint {h.index + 1}:</strong> <MathText text={h.text} />
+              <strong className="font-medium">{h.index === 0 ? "Cue" : "Worked step"}:</strong> <MathText text={h.text} />
             </p>
           ))}
           {item.revealedSolution && (
             <p>
-              <strong>Worked solution:</strong> {item.revealedSolution}
+              <strong className="font-medium">Worked solution:</strong> {item.revealedSolution}
             </p>
           )}
+          {sourcePages?.length === 0 && <p className="text-xs">No source pages are available for this question.</p>}
           {sourcePages?.map((p) => (
             <details key={p.page} open>
-              <summary className="text-xs font-medium">
+              <summary className="min-h-8 text-xs font-medium">
                 {p.label}, PDF page {p.page}
               </summary>
               <pre className="mt-1 whitespace-pre-wrap font-sans text-xs">{p.text}</pre>
@@ -363,18 +414,19 @@ function QuestionCard({
       )}
 
       <div className="space-y-3">
-        <label className="block text-sm font-medium" htmlFor={`answer-${item.sessionQuestionId}`}>
+        <label className="block text-sm font-medium" htmlFor={`answer-${id}`}>
           {mode === "repair" ? "Corrected answer" : "Your answer"}
         </label>
         <textarea
-          id={`answer-${item.sessionQuestionId}`}
+          id={`answer-${id}`}
           data-testid="answer-input"
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
           rows={5}
           maxLength={4000}
-          className="w-full rounded-lg border border-line bg-white p-3 text-sm focus:border-teal"
-          placeholder="Write your answer in your own words. Plain text is fine (e.g. -ln(0.8))."
+          aria-describedby={err ? `err-${id}` : undefined}
+          className="w-full rounded-lg border border-line-strong bg-white p-3 text-[15px] focus:border-teal"
+          placeholder="Write your answer in your own words. Plain text is fine, e.g. -ln(0.8)."
         />
         {demoExamples.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -383,7 +435,7 @@ function QuestionCard({
               <button
                 key={ex.label}
                 type="button"
-                className="rounded-md border border-dashed border-amber-ink/40 bg-amber-soft px-2 py-1 text-amber-ink"
+                className="min-h-9 rounded-md border border-dashed border-amber-ink/40 bg-amber-soft px-2 text-amber-ink"
                 onClick={() => setAnswer(ex.answer)}
                 data-testid={`demo-example-${ex.label}`}
               >
@@ -392,73 +444,92 @@ function QuestionCard({
             ))}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <fieldset className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <fieldset className="flex flex-wrap items-center gap-2">
             <legend className="sr-only">Confidence (optional)</legend>
-            <span className="text-xs text-muted">Confidence (optional, does not affect evidence):</span>
+            <span className="text-xs text-muted">Confidence (optional, never affects evidence):</span>
             {(["low", "medium", "high"] as const).map((c) => (
-              <label key={c} className="flex items-center gap-1 text-xs">
-                <input type="radio" name={`conf-${item.sessionQuestionId}`} checked={confidence === c} onChange={() => setConfidence(c)} />
+              <label key={c} className="flex min-h-8 items-center gap-1 text-xs">
+                <input type="radio" name={`conf-${id}`} checked={confidence === c} onChange={() => setConfidence(c)} />
                 {c}
               </label>
             ))}
           </fieldset>
           {mode === "checkpoint" && (
-            <label className="flex items-center gap-1 text-xs">
-              <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} data-testid="declare-assistance" />I
-              used outside help (notes, web, AI, another person)
+            <label className="flex min-h-8 items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} data-testid="declare-assistance" />I used
+              notes or outside help
             </label>
           )}
         </div>
-        {err && <Notice tone="error">{err}</Notice>}
+        {err && (
+          <p id={`err-${id}`} role="alert" className="rounded-lg bg-red-soft px-3 py-2 text-sm text-red-ink">
+            {err}
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => submit(false)} disabled={busy || answer.trim().length === 0} data-testid="submit-answer">
-            {busy ? "Saving…" : mode === "repair" ? "Submit correction" : "Submit answer"}
-          </Button>
+          <button type="button" onClick={() => submit(false)} disabled={busy} className={primaryBtn} data-testid="submit-answer">
+            {busy ? "Saving answer…" : mode === "repair" ? "Submit correction" : "Submit answer"}
+          </button>
           {mode !== "repair" && (
-            <Button variant="secondary" onClick={() => submit(true)} disabled={busy} data-testid="dont-know">
+            <button type="button" onClick={() => submit(true)} disabled={busy} className={secondaryBtn} data-testid="dont-know">
               I don&apos;t know
-            </Button>
+            </button>
           )}
+          <button
+            type="button"
+            onClick={() => setHelpOpen((o) => !o)}
+            aria-expanded={helpOpen}
+            aria-controls={`help-${id}`}
+            className={secondaryBtn}
+            data-testid="get-help"
+          >
+            <LifeBuoy size={16} aria-hidden="true" />
+            Get help
+            <ChevronDown size={14} aria-hidden="true" className={helpOpen ? "rotate-180" : ""} />
+          </button>
         </div>
       </div>
 
-      <div className="border-t border-line pt-3">
-        <p className="text-xs text-muted">
-          Help{mode === "checkpoint" ? " (marks this skill as supported for the rest of this session)" : ""}:
-          {helpUsed && mode === "checkpoint" && <span className="ml-1 font-medium text-amber-ink">help used – this answer will count as supported.</span>}
+      <div id={`help-${id}`} hidden={!helpOpen} className="rounded-lg border border-line bg-paper p-4">
+        <p className="flex items-start gap-2 text-sm">
+          <CircleHelp size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-ink" />
+          <span>
+            {mode === "checkpoint"
+              ? "Using help records support: your answer to this question will count as completed with support, not independent."
+              : "Help is part of practice. It is recorded, and practice answers always count as supported."}
+            {helpUsed && mode === "checkpoint" && <strong className="ml-1 font-medium text-amber-ink">Support is now recorded for this skill.</strong>}
+          </span>
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           {nextHint < item.hintCount && (
-            <Button variant="ghost" onClick={() => revealHelp("hint", nextHint)} data-testid="reveal-hint">
-              {nextHint === 0 ? "Show a hint" : "Show a worked step"}
-            </Button>
+            <button type="button" className={secondaryBtn} onClick={() => revealHelp("hint", nextHint)} data-testid="reveal-hint">
+              {nextHint === 0 ? "Show a general cue" : "Show a worked step"}
+            </button>
           )}
-          <Button variant="ghost" onClick={() => revealHelp("source")} data-testid="reveal-source">
+          <button type="button" className={secondaryBtn} onClick={() => revealHelp("source")} data-testid="reveal-source">
             Show source pages
-          </Button>
+          </button>
           {!item.revealedSolution && (
-            <Button variant="ghost" onClick={() => revealHelp("solution")} data-testid="reveal-solution">
+            <button type="button" className={secondaryBtn} onClick={() => revealHelp("solution")} data-testid="reveal-solution">
               Show worked solution
-            </Button>
+            </button>
           )}
         </div>
       </div>
-      {latest && mode !== "checkpoint" && latest.status === "assessed" && !latest.feedback && (
-        <p className="text-xs text-muted">Feedback for this answer is not released yet.</p>
-      )}
-    </Card>
+    </section>
   );
 }
 
-function AttemptBlock({ attempt, onRetried }: { attempt: Attempt; onRetried: () => void }) {
+function AttemptBlock({ attempt, onChanged }: { attempt: Attempt; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function retry() {
     setBusy(true);
+    setErr(null);
     try {
       await api(`/api/attempts/${attempt.id}/retry`, { method: "POST", json: {} });
-      onRetried();
+      onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Retry failed.");
     } finally {
@@ -468,78 +539,55 @@ function AttemptBlock({ attempt, onRetried }: { attempt: Attempt; onRetried: () 
   return (
     <div className="rounded-lg border border-line p-3" data-testid={`attempt-${attempt.phase}`}>
       <p className="text-xs text-muted">
-        {attempt.phase === "original" ? "Original answer" : "Correction"} ·{" "}
-        {attempt.supportedOnly ? "supported" : "independent conditions"}
+        {attempt.phase === "original" ? "Original answer" : "Correction"} · {attempt.supportedOnly ? "supported" : "independent conditions"}
         {attempt.declaredAssistance ? " · outside help declared" : ""}
       </p>
       <p className="mt-1 whitespace-pre-wrap text-sm">{attempt.dontKnow ? "I don't know" : attempt.answer}</p>
       {attempt.status === "provider_error" && (
         <div className="mt-2 space-y-2">
-          <Notice tone="warn">Assessment failed: {attempt.lastError}. Your answer is saved.</Notice>
-          <Button variant="secondary" onClick={retry} disabled={busy}>
+          <Notice tone="warn">Your answer is saved, but the assessment didn&apos;t complete: {attempt.lastError}</Notice>
+          <button type="button" onClick={retry} disabled={busy} className={secondaryBtn}>
             {busy ? "Retrying…" : "Retry assessment"}
-          </Button>
-          {err && <Notice tone="error">{err}</Notice>}
+          </button>
+          {err && <p className="text-sm text-red-ink">{err}</p>}
         </div>
       )}
-      {(attempt.status === "assessing" || attempt.status === "pending") && <p className="mt-2 text-xs text-muted">Assessing…</p>}
-      {attempt.feedback && <FeedbackBlock feedback={attempt.feedback} />}
-    </div>
-  );
-}
-
-function FeedbackBlock({ feedback }: { feedback: Feedback }) {
-  const tone = feedback.outcome === "pass" ? "good" : feedback.outcome === "uncertain" ? "neutral" : "warn";
-  return (
-    <div className="mt-3 space-y-2" data-testid="feedback">
-      <div className="flex flex-wrap items-center gap-2">
-        <Pill tone={tone}>{OUTCOME_TEXT[feedback.outcome]}</Pill>
-        <span className="text-xs text-muted">
-          judged by {feedback.providerMode === "mock" ? "offline fixture" : feedback.providerMode === "rule" ? "rule" : `live Claude (${feedback.providerModel})`}
-        </span>
-        {feedback.excluded && <Pill tone="warn">Flagged and excluded</Pill>}
-      </div>
-      {feedback.validity === "invalid" && (
-        <Notice tone="warn">The judgement failed server-side checks ({feedback.problems.join("; ")}). It has no effect on your evidence.</Notice>
+      {(attempt.status === "assessing" || attempt.status === "pending") && <p className="mt-2 text-xs text-muted">Answer saved · assessing…</p>}
+      {attempt.feedback && (
+        <div className="mt-3 space-y-2">
+          <CriterionFeedback feedback={attempt.feedback} />
+          {!attempt.feedback.excluded && <FlagJudgementButton assessmentId={attempt.feedback.assessmentId} onFlagged={onChanged} />}
+        </div>
       )}
-      <ul className="space-y-1 text-sm">
-        {feedback.criteria.map((c) => (
-          <li key={c.criterionId} className="rounded-md bg-paper p-2">
-            <p>
-              <strong>{STATUS_TEXT[c.status] ?? c.status}</strong>
-              {c.essential ? "" : " (optional)"} – {c.description}
-            </p>
-            <p className="text-xs text-muted">{c.briefReason}</p>
-            {c.answerQuote && <p className="text-xs italic text-muted">From your answer: “{c.answerQuote}”</p>}
-          </li>
-        ))}
-      </ul>
-      {feedback.possibleMisconception && (
-        <p className="text-sm">
-          <strong>Possible misconception:</strong> {feedback.possibleMisconception}
-        </p>
-      )}
-      <details className="text-sm">
-        <summary className="text-teal">Reference answer</summary>
-        <p className="mt-1 text-muted">{feedback.referenceSummary}</p>
-      </details>
     </div>
   );
 }
 
 // ---------------------------------------------------------------- results
 
-function ResultsPanel({ sessionId, data, onChanged }: { sessionId: string; data: SessionData; onChanged: (msg?: string) => void }) {
+function ResultsPanel({
+  sessionId,
+  data,
+  onChanged,
+  onReturnHome,
+}: {
+  sessionId: string;
+  data: SessionData;
+  onChanged: (msg?: string) => void;
+  onReturnHome: () => void;
+}) {
+  const router = useRouter();
   const results = data.results!;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const items = isFullItems(data.items) ? data.items : [];
 
   async function release(withholdPending = false) {
     setBusy(true);
     setErr(null);
     try {
       await api(`/api/sessions/${sessionId}/feedback`, { method: "POST", json: { withholdPending } });
-      onChanged("Feedback released. This is recorded as feedback exposure for these skills.");
+      onChanged("Feedback released. This is recorded as feedback for these skills.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not release feedback.");
     } finally {
@@ -549,6 +597,7 @@ function ResultsPanel({ sessionId, data, onChanged }: { sessionId: string; data:
 
   async function retry(attemptId: string) {
     setBusy(true);
+    setErr(null);
     try {
       await api(`/api/attempts/${attemptId}/retry`, { method: "POST", json: {} });
       onChanged();
@@ -559,75 +608,149 @@ function ResultsPanel({ sessionId, data, onChanged }: { sessionId: string; data:
     }
   }
 
+  async function freshQuestion(skillId: string) {
+    setBusy(true);
+    try {
+      const res = await api<{ sessionId: string }>("/api/sessions", {
+        method: "POST",
+        json: { topicId: data.topic.id, purpose: "check", skillIds: [skillId] },
+      });
+      router.push(`/sessions/${res.sessionId}`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not start a fresh question.");
+      setBusy(false);
+    }
+  }
+
+  function goPractise(sqId: string) {
+    const el = document.getElementById(`question-${sqId}`);
+    el?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el?.focus({ preventScroll: true });
+  }
+
+  const active = data.session.status === "active";
   return (
-    <section className="space-y-4" aria-labelledby="results">
-      <h2 id="results" className="font-serif text-xl font-semibold">
-        Checkpoint results
-      </h2>
-      <div className="grid gap-4 md:grid-cols-2">
-        {results.skills.map((s) => (
-          <Card key={s.skillId}>
-            <div data-testid={`result-${s.skillId}`}>
-              <p className="text-xs uppercase tracking-wide text-muted">{s.taskType === "calculate" || s.taskType === "apply" ? "Application" : "Explanation"} skill</p>
-              <p className="font-medium">{s.objective}</p>
+    <section className="space-y-4" aria-labelledby="results-title">
+      <div className="rounded-xl border border-line bg-card p-5 sm:p-6">
+        <h2 id="results-title" className="text-[13px] font-medium uppercase tracking-[0.08em] text-muted">
+          Check results
+        </h2>
+        <p className="mt-2 text-[19px] font-semibold leading-snug" data-testid="results-summary">
+          {results.summary || "No answers were saved in this check."}
+        </p>
+        {results.feedbackReleased && active && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {results.nextAction.kind === "practise" ? (
+              <button
+                type="button"
+                className={primaryBtn}
+                onClick={() => goPractise(results.nextAction.sessionQuestionId!)}
+                data-testid="next-action"
+              >
+                {results.nextAction.label}
+                <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            ) : (
+              <button type="button" className={primaryBtn} onClick={onReturnHome} data-testid="next-action">
+                Return to overview
+                <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            )}
+            <Link href={`/topics/${data.topic.id}`} className={secondaryBtn}>
+              View topic evidence
+            </Link>
+          </div>
+        )}
+      </div>
+
+      <ul className="space-y-3">
+        {results.skills.map((s) => {
+          const item = items.find((i) => i.sessionQuestionId === s.sessionQuestionId);
+          const original = item?.attempts.find((a) => a.phase === "original");
+          return (
+            <li key={s.skillId} className="rounded-xl border border-line bg-card p-4 sm:p-5" data-testid={`result-${s.skillId}`}>
+              <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">{TASK_LABEL[s.taskType]}</p>
+              <p className="mt-0.5 text-[15px] font-medium">{s.objective}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <EvidenceLabel state={s.evidenceState} />
-                {s.reassessmentNeeded && <Pill tone="warn">{s.taskType === "calculate" || s.taskType === "apply" ? "Application needs another check" : "Needs another independent check"}</Pill>}
+                {s.reassessmentNeeded && (
+                  <Pill tone="warn">
+                    {s.taskType === "calculate" || s.taskType === "apply" ? "Application needs another check" : "Needs another check"}
+                  </Pill>
+                )}
               </div>
               <p className="mt-2 text-sm">
                 {!s.answered
-                  ? "Not answered in this checkpoint (unassessed)."
+                  ? "Not answered in this check, so it stays unassessed."
                   : s.originalOutcome === null
-                    ? "Awaiting assessment."
-                    : `This checkpoint: ${OUTCOME_TEXT[s.originalOutcome]}${s.originalIndependent ? " (independent)" : " (supported)"}.`}
+                    ? "Answer saved · assessment pending."
+                    : s.originalExcluded
+                      ? "This judgement is excluded from your learning record."
+                      : s.originalOutcome === "uncertain"
+                        ? "Not enough evidence to judge this answer. Nothing was recorded from it."
+                        : s.originalOutcome === "pass"
+                          ? s.originalIndependent
+                            ? "Original answer met every essential criterion independently."
+                            : "Original answer met the criteria with support."
+                          : s.repaired
+                            ? "Original answer missed a step; the correction met the criteria with support."
+                            : "Original answer missed an essential step."}
               </p>
-              <p className="mt-1 text-sm font-medium text-teal-dark" data-testid={`result-due-${s.skillId}`}>
-                {s.dueLabel}
-              </p>
-            </div>
-          </Card>
-        ))}
-      </div>
+              {s.dueWhen && (
+                <p className="mt-1 text-sm font-medium text-teal-dark" data-testid={`result-due-${s.skillId}`}>
+                  Next independent check {s.dueWhen} <span className="text-xs font-normal text-muted">({s.dueExact})</span>
+                </p>
+              )}
+              {original?.feedback && (
+                <details className="mt-3">
+                  <summary className="inline-flex min-h-9 cursor-pointer items-center text-sm text-teal underline underline-offset-2">
+                    Criterion feedback for your original answer
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <p className="whitespace-pre-wrap rounded-md bg-paper p-2 text-sm">{original.dontKnow ? "I don't know" : original.answer}</p>
+                    <CriterionFeedback feedback={original.feedback} />
+                    {!original.feedback.excluded && (
+                      <FlagJudgementButton assessmentId={original.feedback.assessmentId} onFlagged={() => onChanged()} />
+                    )}
+                  </div>
+                </details>
+              )}
+              {s.originalOutcome === "uncertain" && !s.originalExcluded && active && (
+                <button type="button" className={`${secondaryBtn} mt-3`} onClick={() => freshQuestion(s.skillId)} disabled={busy}>
+                  Try a fresh question
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
 
       {!results.allAssessed && (
-        <Card>
-          <p className="text-sm">Some answers are still being assessed or the assessment failed.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+        <div className="rounded-xl border border-line bg-card p-4">
+          <p className="text-sm">Your answers are saved. Some assessments are still running or didn&apos;t complete.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {results.pendingAttemptIds.map((id, i) => (
-              <Button key={id} variant="secondary" onClick={() => retry(id)} disabled={busy}>
-                Retry assessment {results.pendingAttemptIds.length > 1 ? i + 1 : ""}
-              </Button>
+              <button key={id} type="button" className={secondaryBtn} onClick={() => retry(id)} disabled={busy} data-testid="retry-assessment">
+                Retry assessment{results.pendingAttemptIds.length > 1 ? ` ${i + 1}` : ""}
+              </button>
             ))}
             {!results.feedbackReleased && (
-              <Button variant="ghost" onClick={() => release(true)} disabled={busy}>
-                Continue without feedback for those questions
-              </Button>
+              <button type="button" className={secondaryBtn} onClick={() => release(true)} disabled={busy}>
+                Continue without feedback for those
+              </button>
             )}
           </div>
-        </Card>
+        </div>
       )}
 
       {err && <Notice tone="error">{err}</Notice>}
 
       {!results.feedbackReleased && results.allAssessed && (
-        <Card>
-          <p className="text-sm">Your answers are saved and assessed. Criterion-by-criterion feedback is ready.</p>
-          <Button className="mt-3" onClick={() => release(false)} disabled={busy} data-testid="release-feedback">
+        <div className="rounded-xl border border-line bg-card p-4">
+          <p className="text-sm">All answers are assessed. Criterion-by-criterion feedback is ready.</p>
+          <button type="button" className={`${primaryBtn} mt-3`} onClick={() => release(false)} disabled={busy} data-testid="release-feedback">
             Show criterion feedback
-          </Button>
-        </Card>
-      )}
-
-      {results.feedbackReleased && isFullItems(data.items) && data.session.status === "ended" && (
-        <div className="space-y-3">
-          {data.items.map((i) => (
-            <Card key={i.sessionQuestionId}>
-              <MathText text={i.question.prompt} className="font-serif" />
-              {i.attempts.map((a) => (
-                <AttemptBlock key={a.id} attempt={a} onRetried={() => onChanged()} />
-              ))}
-            </Card>
-          ))}
+          </button>
         </div>
       )}
     </section>
@@ -645,8 +768,9 @@ function LearnFlow({
   sessionId: string;
   data: SessionData;
   onChanged: () => void;
-  setFlash: (f: { tone: "good" | "info" | "error" | "warn"; text: string } | null) => void;
+  setFlash: (f: Flash) => void;
 }) {
+  const router = useRouter();
   const [explanation, setExplanation] = useState<{ unitId: string; explanation: string; workedExample: string | null; origin: string } | null>(null);
   const [loadingExp, setLoadingExp] = useState(false);
   const [expErr, setExpErr] = useState<string | null>(null);
@@ -654,6 +778,7 @@ function LearnFlow({
   const unitId = current?.unit.id ?? data.units[0]?.unitId;
   const stored = unitId ? data.explanations[unitId] : undefined;
   const shown = explanation?.unitId === unitId ? explanation : stored ? { unitId: unitId!, ...stored, origin: "checked_fixture" } : null;
+  const practice = data.session.purpose === "practice";
 
   async function explain() {
     if (!unitId) return;
@@ -676,6 +801,7 @@ function LearnFlow({
     try {
       await api(`/api/sessions/${sessionId}/next`, { method: "POST", json: {} });
       setFlash(null);
+      notifyDataChanged();
       onChanged();
     } catch (e) {
       setFlash({ tone: "error", text: e instanceof ApiError ? e.message : "Could not continue." });
@@ -684,45 +810,53 @@ function LearnFlow({
 
   async function workedExample() {
     if (!current) return;
-    await api(`/api/sessions/${sessionId}/reveal`, { method: "POST", json: { kind: "solution", sessionQuestionId: current.sessionQuestionId } }).catch(() => undefined);
+    await api(`/api/sessions/${sessionId}/reveal`, { method: "POST", json: { kind: "solution", sessionQuestionId: current.sessionQuestionId } }).catch(
+      () => undefined,
+    );
     onChanged();
+  }
+
+  async function finish() {
+    await api(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope: "session" } }).catch(() => undefined);
+    notifyDataChanged();
+    router.push("/");
   }
 
   if (data.session.status === "ended") return null;
 
   if (data.noQuestionsAvailable) {
     return (
-      <Card className="space-y-3">
+      <div className="space-y-3 rounded-xl border border-line bg-card p-5">
         <p className="text-sm">No reviewed practice questions are attached to this topic yet. You can still read source-grounded explanations.</p>
         {data.units.map((u) => (
           <p key={u.unitId} className="text-sm">
-            <strong>{u.title}:</strong> {u.objective}
+            <strong className="font-medium">{u.title}:</strong> {u.objective}
           </p>
         ))}
-        <Button variant="secondary" onClick={explain} disabled={loadingExp}>
+        <button type="button" className={secondaryBtn} onClick={explain} disabled={loadingExp}>
           {loadingExp ? "Preparing explanation…" : "Explain the first objective"}
-        </Button>
+        </button>
         {expErr && <Notice tone="warn">{expErr}</Notice>}
         {shown && (
           <div className="rounded-lg bg-paper p-3 text-sm">
             <MathText text={shown.explanation} />
           </div>
         )}
-      </Card>
+      </div>
     );
   }
 
   if (!current) {
     return (
-      <Card>
-        <p className="text-sm">You have worked through every practice question in this session.</p>
+      <div className="rounded-xl border border-line bg-card p-5">
+        <p className="text-[17px] font-semibold">Practice complete</p>
         <p className="mt-1 text-sm text-muted">
-          Learning answers count as supported practice. An independent review is scheduled within 24 hours; open the topic to see the dates.
+          Practice answers count as completed with support. A fresh independent check is scheduled; the overview shows when.
         </p>
-        <div className="mt-3 flex gap-2">
-          <ButtonLink href={`/topics/${data.topic.id}`}>Back to topic</ButtonLink>
-        </div>
-      </Card>
+        <button type="button" className={`${primaryBtn} mt-3`} onClick={finish}>
+          Return to overview
+        </button>
+      </div>
     );
   }
 
@@ -731,33 +865,39 @@ function LearnFlow({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <p className="text-xs uppercase tracking-wide text-muted">Step 1 · Objective and explanation</p>
-        <h2 className="mt-1 font-serif text-lg font-semibold">{current.unit.title}</h2>
-        <p className="text-sm">Objective: {current.unit.objective}</p>
-        {!shown ? (
-          <Button className="mt-3" variant="secondary" onClick={explain} disabled={loadingExp} data-testid="show-explanation">
-            {loadingExp ? "Preparing…" : "Read the explanation and worked example"}
-          </Button>
-        ) : (
-          <div className="mt-3 space-y-3 text-sm" data-testid="explanation">
-            <p>
-              <MathText text={shown.explanation} />
-            </p>
-            {shown.workedExample && (
-              <div className="rounded-lg bg-paper p-3">
-                <p className="text-xs font-semibold uppercase text-muted">Worked example</p>
-                <MathText text={shown.workedExample} />
-              </div>
-            )}
-            <p className="text-xs text-muted">{shown.origin === "live_tutor" ? "Generated by the live tutor from approved source pages." : "Checked explanation from the authored content."}</p>
-          </div>
-        )}
-        {expErr && <Notice tone="warn">{expErr}</Notice>}
-      </Card>
+      {!practice && (
+        <div className="rounded-xl border border-line bg-card p-5">
+          <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">Step 1 · Objective and explanation</p>
+          <h2 className="mt-1 text-[19px] font-semibold">{current.unit.title}</h2>
+          <p className="text-sm">Objective: {current.unit.objective}</p>
+          {!shown ? (
+            <button type="button" className={`${secondaryBtn} mt-3`} onClick={explain} disabled={loadingExp} data-testid="show-explanation">
+              {loadingExp ? "Preparing…" : "Read the explanation and worked example"}
+            </button>
+          ) : (
+            <div className="mt-3 space-y-3 text-[15px]" data-testid="explanation">
+              <p>
+                <MathText text={shown.explanation} />
+              </p>
+              {shown.workedExample && (
+                <div className="rounded-lg bg-paper p-3">
+                  <p className="text-xs font-medium uppercase text-muted">Worked example</p>
+                  <MathText text={shown.workedExample} />
+                </div>
+              )}
+              <p className="text-xs text-muted">
+                {shown.origin === "live_tutor" ? "Generated by the live tutor from approved source pages." : "Checked explanation from the authored content."}
+              </p>
+            </div>
+          )}
+          {expErr && <Notice tone="warn">{expErr}</Notice>}
+        </div>
+      )}
 
-      <p className="text-xs uppercase tracking-wide text-muted">Step 2 · Practice ({current.ordinal + 1} of {data.progress.total})</p>
-      <QuestionCard
+      <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">
+        {practice ? "Targeted practice" : "Step 2 · Practice"} ({current.ordinal + 1} of {data.progress.total}) · counts as supported
+      </p>
+      <QuestionPanel
         key={current.sessionQuestionId}
         sessionId={sessionId}
         item={current}
@@ -765,37 +905,38 @@ function LearnFlow({
         demoExamples={data.demoExamples[current.question.id] ?? []}
         onSubmitted={(msg) => {
           setFlash({ tone: "good", text: msg });
+          notifyDataChanged();
           onChanged();
         }}
         onChanged={onChanged}
       />
 
-      {latest?.feedback && !passed && !current.offerAlternatives && (
-        <Notice tone="info">Read the criteria above, then try a short correction in the box.</Notice>
+      {latest?.feedback && !passed && !current.offerAlternatives && latest.feedback.outcome !== "uncertain" && (
+        <Notice tone="info">Read the criteria above, then try a short correction in the answer box.</Notice>
       )}
       {latest?.feedback && latest.feedback.outcome !== "pass" && data.provider.mode === "live" && (
         <GapTutor sessionId={sessionId} unitId={current.unit.id} attemptId={latest.id} />
       )}
       {current.offerAlternatives && !passed && (
-        <Card>
-          <p className="text-sm">Two attempts have not met the criteria yet. That is fine. Choose what helps:</p>
+        <div className="rounded-xl border border-line bg-card p-4">
+          <p className="text-sm">Two attempts haven&apos;t met the criteria yet. That&apos;s fine. Choose what helps:</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={workedExample}>
+            <button type="button" className={secondaryBtn} onClick={workedExample}>
               See a worked example
-            </Button>
-            <Button variant="secondary" onClick={() => api(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope: "session" } }).then(onChanged)}>
+            </button>
+            <button type="button" className={secondaryBtn} onClick={finish}>
               Pause here
-            </Button>
-            <ButtonLink href={`/topics/${data.topic.id}`} variant="secondary">
+            </button>
+            <Link href={`/topics/${data.topic.id}`} className={secondaryBtn}>
               Return to topic
-            </ButtonLink>
+            </Link>
           </div>
-        </Card>
+        </div>
       )}
-      {(passed || current.offerAlternatives || (latest && latest.feedback?.outcome === "uncertain")) && (
-        <Button onClick={next} data-testid="next-question">
+      {(passed || current.offerAlternatives || latest?.feedback?.outcome === "uncertain") && (
+        <button type="button" className={primaryBtn} onClick={next} data-testid="next-question">
           {current.ordinal + 1 < data.progress.total ? "Next practice question" : "Finish practice"}
-        </Button>
+        </button>
       )}
     </div>
   );
@@ -821,21 +962,21 @@ function GapTutor({ sessionId, unitId, attemptId }: { sessionId: string; unitId:
     }
   }
   return (
-    <Card>
+    <div className="rounded-xl border border-line bg-card p-4">
       {!text && (
-        <Button variant="secondary" onClick={ask} disabled={busy}>
-          {busy ? "Asking the tutor…" : "Ask the live tutor about this gap"}
-        </Button>
+        <button type="button" className={secondaryBtn} onClick={ask} disabled={busy}>
+          {busy ? "Asking the tutor…" : "Ask the tutor about this gap"}
+        </button>
       )}
       {err && <Notice tone="warn">{err}</Notice>}
       {text && (
         <div className="space-y-1 text-sm">
-          <p className="text-xs text-muted">Live tutor, grounded in the approved source pages. It does not grade or change your evidence.</p>
+          <p className="text-xs text-muted">Tutor explanation grounded in the approved source pages. It does not grade or change your evidence.</p>
           <p className="whitespace-pre-wrap">
             <MathText text={text} />
           </p>
         </div>
       )}
-    </Card>
+    </div>
   );
 }

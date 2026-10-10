@@ -48,3 +48,5 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 !.env.example
+/.e2e-data-fault/
+/.visual-data/

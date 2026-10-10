@@ -15,6 +15,7 @@ import {
   insertTopic,
   insertUnit,
   replaceSourcePages,
+  updateQuestionContent,
 } from "../db/repo";
 import { extractPdfText } from "../pdf/extract";
 import { generateSampleLecturePdf } from "../pdf/generate-sample";
@@ -31,20 +32,29 @@ export interface SeedInput {
   fixtures: { curriculum: CurriculumFixture; lecture: LectureFixture; bank: QuestionBank };
 }
 
-/** Generate the sample lecture PDF if missing. Deterministic bytes (fixed metadata dates). */
+/** Generate the sample lecture PDF from the lecture fixture; rewrite only when the bytes change (deterministic output). */
 export async function ensureSamplePdf(samplePdfPath: string, lecture: LectureFixture): Promise<{ sha256: string; created: boolean }> {
-  let created = false;
-  if (!existsSync(samplePdfPath)) {
+  const bytes = Buffer.from(await generateSampleLecturePdf(lecture));
+  const current = existsSync(samplePdfPath) ? readFileSync(samplePdfPath) : null;
+  const created = !current || !current.equals(bytes);
+  if (created) {
     mkdirSync(path.dirname(samplePdfPath), { recursive: true });
-    writeFileSync(samplePdfPath, await generateSampleLecturePdf(lecture));
-    created = true;
+    writeFileSync(samplePdfPath, bytes);
   }
-  return { sha256: createHash("sha256").update(readFileSync(samplePdfPath)).digest("hex"), created };
+  return { sha256: createHash("sha256").update(bytes).digest("hex"), created };
 }
 
 export async function seedDemo(input: SeedInput) {
   const { db, now, dataDir, fixtures } = input;
-  const report = { courseCreated: false, questionsInserted: 0, sourceCreated: false, pdfCreated: false };
+  const report = {
+    courseCreated: false,
+    questionsInserted: 0,
+    questionsUpdated: 0,
+    sourceCreated: false,
+    sourceRefreshed: false,
+    unitsRefreshed: 0,
+    pdfCreated: false,
+  };
   const pdf = await ensureSamplePdf(input.samplePdfPath, fixtures.lecture);
   report.pdfCreated = pdf.created;
 
@@ -109,16 +119,45 @@ export async function seedDemo(input: SeedInput) {
         pages.map((p) => ({ pageNumber: p.pageNumber, text: p.text, lowTextWarning: p.lowTextWarning })),
       );
     }
+    // Demo source text follows the lecture fixture (only the demo source; never user uploads).
+    const demoSource = getSource(db, DEMO_SOURCE_ID);
+    if (demoSource && !report.sourceCreated && demoSource.sha256 !== pdf.sha256) {
+      db.prepare("UPDATE sources SET sha256 = ?, page_count = ? WHERE id = ?").run(pdf.sha256, pages.length, DEMO_SOURCE_ID);
+      replaceSourcePages(
+        db,
+        DEMO_SOURCE_ID,
+        pages.map((p) => ({ pageNumber: p.pageNumber, text: p.text, lowTextWarning: p.lowTextWarning })),
+      );
+      report.sourceRefreshed = true;
+    }
+    // Checked explanations are instructional content, not evidence: keep demo units in step with the fixture.
+    for (const t of fixtures.curriculum.topics) {
+      for (const u of t.units) {
+        const res = db
+          .prepare(
+            "UPDATE units SET explanation = ?, worked_example = ? WHERE id = ? AND (explanation IS NOT ? OR worked_example IS NOT ?)",
+          )
+          .run(u.explanation, u.workedExample, u.id, u.explanation, u.workedExample);
+        report.unitsRefreshed += res.changes;
+      }
+    }
     for (const q of fixtures.bank.questions) {
-      if (getQuestion(db, q.id)) continue; // never overwrite: questions are immutable once seeded
-      insertQuestion(db, q);
-      report.questionsInserted += 1;
+      const existing = getQuestion(db, q.id);
+      if (!existing) {
+        insertQuestion(db, q);
+        report.questionsInserted += 1;
+      } else if (existing.status === "authored_fixture" && q.version > existing.version) {
+        // Newer authored version of an unreviewed fixture. Owner-reviewed/excluded questions are never changed;
+        // sessions that used the old version keep their frozen copy.
+        updateQuestionContent(db, q);
+        report.questionsUpdated += 1;
+      }
     }
   })();
 
   const uploads = path.join(dataDir, "uploads");
   mkdirSync(uploads, { recursive: true });
   const dest = path.join(uploads, DEMO_SOURCE_FILE);
-  if (!existsSync(dest)) copyFileSync(input.samplePdfPath, dest);
+  if (!existsSync(dest) || !readFileSync(dest).equals(readFileSync(input.samplePdfPath))) copyFileSync(input.samplePdfPath, dest);
   return report;
 }

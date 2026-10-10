@@ -36,6 +36,7 @@ test("sample PDF import: extraction, draft edit, explicit approval, page refs, r
 
   // Imported topic: review disabled with an honest reason.
   await page.getByRole("link", { name: "Open topic" }).first().click();
+  await expect(page.getByText("Reviewed assessment questions needed.").first()).toBeVisible();
   await expect(page.getByTestId("start-review")).toBeDisabled();
-  await expect(page.getByText("Independent review is disabled for this topic")).toBeVisible();
+  await expect(page.getByText("Independent checks are disabled until an owner-authored")).toBeVisible();
 });

@@ -55,9 +55,11 @@
       "paragraphs": [
         "BCE(y, p) = -[ y log p + (1 - y) log(1 - p) ], using natural logarithms and p in (0, 1).",
         "If y = 1 the second term vanishes and BCE = -log p. If y = 0 the first term vanishes and BCE = -log(1 - p). The loss is never negative.",
+        "Remember that p is always the class-1 probability, not automatically the probability of the true label. For a label-0 example the true-label probability is 1 - p.",
         "Worked example 1: for y = 1 and p = 0.8, BCE = -ln 0.8 = 0.22314 (about 0.223).",
         "Worked example 2: for y = 0 and p = 0.4, BCE = -ln(1 - 0.4) = -ln 0.6 = 0.51083 (about 0.511).",
         "For a dataset, the mean BCE averages the per-example losses. To compare two models on the same labelled examples, compute each model's mean BCE; the lower value indicates higher probability on the true labels.",
+        "Worked example 3: labels [1, 0] with class-1 probabilities [0.9, 0.2]. The losses are -ln 0.9 = 0.10536 and -ln(1 - 0.2) = -ln 0.8 = 0.22314, so the mean BCE is (0.10536 + 0.22314) / 2 = 0.16425 (about 0.164).",
         "Optional extension: at p = 0 or p = 1 the log is undefined or the loss is infinite in the limit, so implementations clip probabilities or work with logits for numerical care."
       ]
     },

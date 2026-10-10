@@ -62,9 +62,8 @@ export function HistoricalReplay() {
             </p>
             <p className="text-xs">
               Evidence after this record: <strong>{e.evidenceLabel}</strong>
-              {e.reassessmentNeeded ? " · needs another independent check" : ""}
+              {e.reassessmentNeeded ? " · needs another check" : ""}
               {e.due ? ` · next review ${e.due}` : ""}
-              {e.stage !== null ? ` · stage ${e.stage}` : ""}
             </p>
           </li>
         ))}

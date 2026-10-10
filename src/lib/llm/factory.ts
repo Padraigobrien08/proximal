@@ -56,9 +56,18 @@ export function sampleLectureSha(): string | null {
   return createHash("sha256").update(readFileSync(SAMPLE_PDF_PATH)).digest("hex");
 }
 
+/**
+ * Test-only fault injection for the offline provider: PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N makes the first N mock
+ * assessment calls in this process fail as an unavailable provider, so the pending/retry path can be exercised in a
+ * browser without credentials. Never applies in live mode.
+ */
+const faultState = globalThis as unknown as { __proximalMockFailures?: number };
+
 export function createMockProvider(db: Database.Database): MockProvider {
   const sha = sampleLectureSha();
-  return new MockProvider({
+  const injected = Number(process.env.PROXIMAL_FAULT_MOCK_ASSESS_FAILURES ?? 0);
+  if (faultState.__proximalMockFailures === undefined) faultState.__proximalMockFailures = Number.isFinite(injected) ? injected : 0;
+  const provider = new MockProvider({
     examplesFor: (questionId) => {
       const row = db.prepare("SELECT examples_json FROM questions WHERE id = ?").get(questionId) as
         | { examples_json: string }
@@ -67,6 +76,17 @@ export function createMockProvider(db: Database.Database): MockProvider {
     },
     sampleLecture: sha ? { sha256: sha, draft: fixtureCurriculumDraft() } : null,
   });
+  if (faultState.__proximalMockFailures && faultState.__proximalMockFailures > 0) {
+    const real = provider.assessAnswer.bind(provider);
+    provider.assessAnswer = async (input) => {
+      if ((faultState.__proximalMockFailures ?? 0) > 0) {
+        faultState.__proximalMockFailures! -= 1;
+        throw new ProviderError("Simulated provider outage (test fault injection).", "provider_unavailable", true);
+      }
+      return real(input);
+    };
+  }
+  return provider;
 }
 
 export function createProvider(db: Database.Database): { provider: LearningProvider; status: ProviderStatus } {

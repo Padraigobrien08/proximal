@@ -21,6 +21,11 @@ import { createMockProvider } from "../../src/lib/llm/factory";
 import { createTestContext, exampleAnswer } from "../helpers";
 
 const BCE = "demo-topic-bce";
+
+/** Attempt rows from the topic history (help rows are interleaved). */
+function attemptHistory(view: ReturnType<typeof getTopicView>) {
+  return view.history.flatMap((h) => (h.kind === "attempt" ? [h] : []));
+}
 let cleanup: (() => void) | null = null;
 afterEach(() => {
   cleanup?.();
@@ -105,7 +110,7 @@ describe("showcase checkpoint (mock mode)", () => {
     expect(s5View.label).toBe("Completed with support");
     expect(s5View.reassessmentNeeded).toBe(true);
     expect(s5View.dueLabel).toMatch(/Review due/);
-    expect(topic.evidence.filter((e) => e.skillId === "S5").map((e) => e.evidenceKind).sort()).toEqual(["independent", "supported"]);
+    expect(attemptHistory(topic).filter((e) => e.skillId === "S5").map((e) => e.evidenceKind).sort()).toEqual(["independent", "supported"]);
 
     // 7. A real later review >= 24h selects the distinct S5-B family.
     endSession(ctx, sessionId);
@@ -191,7 +196,7 @@ describe("assistance and exposure rules", () => {
     const repair = await submitAnswer(ctx, sessionId, { sessionQuestionId: sqId, submissionKey: randomUUID(), answer: exampleAnswer("S4-A", "correct") });
     expect(getAttempt(ctx.db, repair.attemptId)!.exposureSnapshot).toContain("S4");
     const topic = getTopicView(ctx, BCE);
-    expect(topic.evidence.find((e) => e.attemptId === repair.attemptId)!.evidenceKind).toBe("supported");
+    expect(attemptHistory(topic).find((e) => e.attemptId === repair.attemptId)!.evidenceKind).toBe("supported");
     expect(currentSkillState(ctx, "S4").stage).toBe(0);
   });
 
@@ -333,6 +338,7 @@ describe("idempotency, privacy and providers", () => {
     const sq1 = currentSqId(ctx, s1.sessionId);
     const p1 = submitAnswer(ctx, s1.sessionId, { sessionQuestionId: sq1, submissionKey: randomUUID(), answer: exampleAnswer("S5-A", "wrong") });
     clock.advance(2 * MS_DAY);
+    endSession(ctx, s1.sessionId); // otherwise the unfinished checkpoint is resumed rather than duplicated
     const s2 = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S5"] });
     // S5-A has been attempted: the next checkpoint uses the distinct S5-B family.
     const sq2 = currentSqId(ctx, s2.sessionId);
@@ -372,7 +378,7 @@ describe("idempotency, privacy and providers", () => {
     const asm = getAssessmentForAttempt(ctx.db, r.attemptId)!;
     flagAssessment(ctx, asm.id, "Judgement looked wrong");
     expect(currentSkillState(ctx, "S4").evidenceState).toBe("unassessed");
-    const ev = getTopicView(ctx, BCE).evidence.find((e) => e.attemptId === r.attemptId)!;
+    const ev = attemptHistory(getTopicView(ctx, BCE)).find((e) => e.attemptId === r.attemptId)!;
     expect(ev.excluded).toBe(true);
     expect(ev.excludedReason).toBe("Judgement looked wrong");
   });

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "katex/dist/katex.min.css";
+import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

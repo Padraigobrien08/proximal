@@ -454,6 +454,28 @@ export function insertQuestion(db: DB, q: QuestionPrivate & { examples: ExampleF
   );
 }
 
+/** Replace an unreviewed fixture question's content with a newer authored version. Sessions keep their frozen copies. */
+export function updateQuestionContent(db: DB, q: QuestionPrivate & { examples: ExampleFixture[] }) {
+  db.prepare(
+    `UPDATE questions SET version = ?, family_id = ?, is_transfer = ?, task_type = ?, prompt = ?, reference_json = ?, rubric_json = ?,
+       hints_json = ?, source_refs_json = ?, reveal_skill_ids_json = ?, examples_json = ?
+     WHERE id = ? AND status = 'authored_fixture'`,
+  ).run(
+    q.version,
+    q.familyId,
+    q.isTransfer ? 1 : 0,
+    q.taskType,
+    q.prompt,
+    JSON.stringify(q.reference),
+    JSON.stringify(q.rubric),
+    JSON.stringify(q.hints),
+    JSON.stringify(q.sourceRefs),
+    JSON.stringify(q.revealSkillIds),
+    JSON.stringify(q.examples),
+    q.id,
+  );
+}
+
 export function getQuestion(db: DB, id: string): QuestionRecord | null {
   const r = db.prepare("SELECT * FROM questions WHERE id = ?").get(id) as RawQuestion | undefined;
   return r ? mapQuestion(r) : null;
@@ -481,10 +503,13 @@ export function lastAttemptByFamily(db: DB, skillId: string): Map<string, number
 
 // ---------------------------------------------------------------- sessions
 
+export type SessionPurpose = "learn" | "practice" | "check" | "review";
+
 export interface SessionRow {
   id: string;
   topicId: string;
   mode: SessionMode;
+  purpose: SessionPurpose;
   isDemo: boolean;
   status: "active" | "ended";
   phase: "checkpoint" | "results" | "repair" | "learning";
@@ -498,6 +523,7 @@ interface RawSession {
   id: string;
   topic_id: string;
   mode: SessionMode;
+  purpose: SessionPurpose;
   is_demo: number;
   status: SessionRow["status"];
   phase: SessionRow["phase"];
@@ -510,6 +536,7 @@ const mapSession = (r: RawSession): SessionRow => ({
   id: r.id,
   topicId: r.topic_id,
   mode: r.mode,
+  purpose: r.purpose,
   isDemo: !!r.is_demo,
   status: r.status,
   phase: r.phase,
@@ -522,8 +549,8 @@ const mapSession = (r: RawSession): SessionRow => ({
 export function insertSession(db: DB, s: Omit<SessionRow, "id" | "feedbackReleasedAt" | "endedAt" | "currentOrdinal">): string {
   const id = newId();
   db.prepare(
-    "INSERT INTO sessions (id, topic_id, mode, is_demo, status, phase, current_ordinal, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-  ).run(id, s.topicId, s.mode, s.isDemo ? 1 : 0, s.status, s.phase, s.createdAt);
+    "INSERT INTO sessions (id, topic_id, mode, purpose, is_demo, status, phase, current_ordinal, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+  ).run(id, s.topicId, s.mode, s.purpose, s.isDemo ? 1 : 0, s.status, s.phase, s.createdAt);
   return id;
 }
 

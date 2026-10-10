@@ -4,7 +4,8 @@ Proximal is a local-first study app. You study topics, and it records separate e
 "completed with support" apart from "demonstrated independently", holds back checkpoint feedback until every answer is saved, and
 schedules fresh review questions.
 
-The scope is the build brief only. It is a **single-user app bound to `127.0.0.1`**. There is no authentication, no
+The current scope is the P0 slice of [`docs/proximal/IMPLEMENTATION_HANDOFF.md`](docs/proximal/IMPLEMENTATION_HANDOFF.md) (which supersedes the
+original build brief), plus the P1 features that were already working. It is a **single-user app bound to `127.0.0.1`**. There is no authentication, no
 hosting story and no multi-user isolation. It is not ready for multi-user deployment; a hosted pilot would be a separate change
 (authentication, ownership checks, durable storage).
 
@@ -19,21 +20,27 @@ npm run dev        # http://127.0.0.1:3000
 
 ### Acceptance demo (offline mode)
 
-1. On the home page, open **Binary cross-entropy** and choose **Review (independent check)**.
-2. Question 1 (S4-A, explanation): click **Demo example: correct** and submit. You only see "Answer saved".
-3. Question 2 (S5-A, calculation): click **Demo example: wrong** (a sign error) and submit.
-4. The results show the two capabilities separately. Explanation is **Demonstrated independently**. Application is
-   **Still developing**, with the flag **Application needs another check**.
-5. Click **Show criterion feedback**. On S5-A, click **Show a hint**, fill **Demo example: correct**, then **Submit correction**. The
-   correction is checked and recorded as **supported**. The original failure is kept, and S5 becomes **Completed with support**,
-   with **Review due tomorrow**.
-6. The topic page shows each skill's evidence label, its last independent check, the next due date, missing new-context
-   coverage and a chronological evidence list (with **Flag judgement**).
-7. **Open historical example (seeded)** replays fixed example dates three days apart through the same reducers. In the replay, a
-   later review uses the distinct S5-B family. The panel is labelled "Seeded example — not participant data". Alternatively,
-   after 24 real hours a new review automatically selects S5-B.
+1. **Overview** (`/`) shows the real starting action (“Start Model and likelihood”), a session plan for the selected 10/20/30-minute
+   budget, and the course card with real counts (“0 of 6 required skills checked independently”).
+2. Open **AI classification demo → Binary cross-entropy** and choose **Check understanding** (an independent check, with no
+   explanation first).
+3. Question 1 (S4-A, explanation): click **Demo example: correct** and **Submit answer**. You only see “Answer saved.”
+4. Question 2 (S5-A, calculation): click **Demo example: wrong** (`BCE = ln(0.8) ≈ −0.22314.`, a sign error) and submit.
+5. The results lead with “You explained Binary cross-entropy independently. The calculation needs practice.” Each skill is shown
+   separately. Click **Show criterion feedback**.
+6. Click **Practise calculation**, then **Get help → Show a general cue**. Fill **Demo example: correct** and **Submit correction**.
+   The correction is saved as a new attempt and recorded as supported; the original wrong answer stays. The summary becomes
+   “… Calculation completed with support. A fresh independent check is scheduled.”
+7. **Return to overview**. **Recent evidence** shows Explain BCE as **Demonstrated independently** and Calculate BCE as
+   **Completed with support**. **Upcoming check** shows Binary cross-entropy “tomorrow at …” (24 elapsed hours after the
+   calculation gap). The course card shows “1 of 6”. Refresh or restart the server and the state is unchanged.
+8. On the topic page, **Derive BCE** stays **Not checked yet**. The evidence history interleaves the original answers, the hint and
+   the supported correction; each answer expands to its text, released criterion feedback, provider label and **Flag judgement**.
+9. A later real check after 24 hours selects the fresh S5-B comparison task. A pass there is **Demonstrated independently**, not
+   retention. **Open historical example (seeded)** shows prepared example dates and is labelled “Seeded example — not participant
+   data”; it is computed from a fixture, not stored as learner records.
 
-The "demo example" buttons appear **only in mock mode**. They are labelled as authored examples, not your own work.
+The “demo example” buttons appear **only in offline mode**. They are labelled as examples, not your own work.
 
 ## Commands
 
@@ -44,9 +51,9 @@ The "demo example" buttons appear **only in mock mode**. They are labelled as au
 | `npm run lint` | ESLint (Next.js core-web-vitals + TypeScript rules). |
 | `npm run typecheck` | `tsc --noEmit` in strict mode. |
 | `npm test` | Vitest unit and integration tests (`tests/unit`, `tests/integration`). Uses temporary SQLite DBs and an injected clock. |
-| `npm run test:e2e` | Playwright. Deletes and re-seeds `.e2e-data/`, runs `next build`, serves on 127.0.0.1:3100 in mock mode, then runs both browser flows. Run `npx playwright install chromium` once first. Stop any other `next build` first. |
+| `npm run test:e2e` | Playwright, key-free. Re-seeds `.e2e-data/`, runs `next build` and serves on 127.0.0.1:3100 in offline mode. It also starts a second server on :3101 with its own `.e2e-data-fault/`, where the first offline assessment fails (test fault injection). Four flows run: showcase, sample import, resume + flag, failed assessment + retry. Run `npx playwright install chromium` once first. Stop any other `next build` first. |
 | `npm run db:migrate` | Applies pending `src/lib/db/migrations/*.sql` to `$PROXIMAL_DATA_DIR/proximal.db`. Idempotent. |
-| `npm run db:seed` | Migrates, generates `fixtures/sample-lecture.pdf` if it is missing (byte-deterministic), and inserts any missing demo course, topics, units, skills, questions and source pages. Idempotent: it never overwrites existing questions and never touches learner records or uploads. |
+| `npm run db:seed` | Migrates and regenerates `fixtures/sample-lecture.pdf` from `fixtures/lecture.json` (byte-deterministic; rewritten only when the bytes change). It inserts any missing demo content and updates the demo source text and checked explanations. An `authored_fixture` question is updated only when its fixture `version` increases; owner-reviewed and excluded questions are never changed, and sessions keep the frozen copy they used. Idempotent. It never touches learner records or imported uploads. |
 | `npm run demo:reset -- --yes` | Deletes sessions, attempts, exposures, assessments and review states **for the demo course only**, then re-seeds. Refuses to run without `--yes`, or if `demo-course` is not marked as a demo. Imported courses and uploads are never touched. |
 | `npm run eval:fixtures` | Evaluation harness (see below). Default `--mode mock`. |
 | `npm run content:review -- --list` / `-- --question S5-A --status owner_reviewed --by "Name"` | Lists question review status, or records that a named person reviewed a question. |
@@ -111,6 +118,31 @@ scripts/              migrate, seed, demo reset, eval, content review, question 
   transaction. An expired lease can be retried. Only one final assessment per attempt is ever accepted.
 - `server-only` marks the DB, env and SDK modules. Scripts and tests run with the `react-server` condition (or an alias) so they can
   share the code.
+
+## Workspace and recommendations
+
+- Every screen shares one shell: a sidebar (Overview, Courses, your courses, provider status), a breadcrumb and **Import lecture**,
+  which opens an accessible dialog. The palette follows the handoff's §6 tokens (`src/app/globals.css`).
+- The home recommendation and the plan are computed on the server from persisted data (`src/lib/domain/plan.ts`), never by a model.
+  Priority:
+  1. the most recent unfinished session, resumed in its exact phase (continue a check, pending assessment, results ready, or an
+     unresolved correction);
+  2. due skills that need another check;
+  3. other due skills, oldest first;
+  4. an unresolved gap: targeted supported practice, which reuses the failed question family so fresh families stay available for
+     checks;
+  5. required skills not yet studied.
+
+  Future checks appear only under **Upcoming check**, never in today's plan.
+- Tasks are packed into the 10/20/30-minute budget at about 5 minutes per question, at most three tasks. A higher-priority task is
+  never skipped to fit lower-priority work; an oversize first task is trimmed to the questions that fit. The budget is remembered in
+  local storage only.
+- Starting the same kind of session for a topic that already has an unfinished one resumes it instead of creating a duplicate.
+- While a check is still open, its judgements are hidden everywhere: on the topic, the home page and in course counts (“Check in
+  progress”), not just in the session.
+- Session labels are **Learn**, **Supported practice**, **Independent check** and **Review**. Evidence labels are Not checked yet /
+  Needs practice / Completed with support / Demonstrated independently / Retention demonstrated. Freshness is shown separately
+  (Scheduled / Due today / Overdue / Needs another check), with local Europe/London dates.
 
 ## Review rules (as implemented)
 
@@ -242,11 +274,18 @@ draft edit, approval, page references and disabled review.
 - **Historical replay is computed from a fixture**, not stored in the learner database, so it can never mix with real records.
 - **Mock demo examples are visible before answering, in mock mode only.** They are necessary for an offline demo; the README and
   UI label them, and live mode never sends them.
+- **Dark mode** is not implemented (not a P0 requirement); the app is light-only.
 - **The live tutor is used for imported units and for gap repair.** Demo units use their checked fixture explanations in both modes.
 - **"I don't know"** is recorded as an assessed fail by a deterministic rule (`provider_mode = rule`). In review mode it therefore
   counts as a valid independent fail.
 - **Checkpoint assessment runs during the submit request.** The learner still sees only "Answer saved". A provider timeout leaves
   the attempt retryable.
+- **Live Claude mode is unverified end to end.** The adapter is unit-tested with a stubbed SDK client; no request has been made
+  with real credentials. Set `LLM_MODE=live`, `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` and try one assessment, one import and one
+  tutor request before relying on it.
+- **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
+  fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
+  do not set it in normal use.
 - **Not implemented** (deferred by the brief): authentication, hosting, OCR and vision import, question generation, semantic
   deduplication, probabilistic mastery, background workers, notifications, analytics, dispute resolution, and sophisticated history
   migration beyond the new-version duplicate described above.

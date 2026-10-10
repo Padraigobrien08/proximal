@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api, ApiError } from "./api";
+import { notifyDataChanged } from "./dataEvents";
 import { Button, Notice } from "./ui";
 
 interface ImportResult {
@@ -36,6 +37,7 @@ export function ImportPanel() {
     try {
       const result = await api<ImportResult>("/api/import", { method: "POST", body: form });
       setState({ status: "done", result, message: result.message });
+      notifyDataChanged();
     } catch (err) {
       setState({ status: "error", message: err instanceof ApiError ? err.message : "Upload failed." });
     }
