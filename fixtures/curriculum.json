@@ -1,0 +1,92 @@
+{
+  "course": { "id": "demo-course", "title": "AI classification demo" },
+  "topics": [
+    {
+      "id": "demo-topic-likelihood",
+      "title": "Model and likelihood",
+      "position": 1,
+      "units": [
+        {
+          "id": "U1",
+          "title": "Model notation",
+          "objective": "Interpret conditional model notation and parameters",
+          "sourcePages": [1],
+          "explanation": "In $p(y \\mid x, \\theta)$ the bar reads 'given'. The model receives the input $x$ (for example, review text) and uses its learned parameters $\\theta$ (weights and bias) to assign a probability to the label $y$. In binary classification $p$ abbreviates $p(y=1 \\mid x, \\theta)$, so class 0 has probability $1-p$. A probability is not a label: a decision rule such as 'predict 1 if $p \\ge 0.5$' converts it into a class.",
+          "workedExample": "A model outputs $p = 0.7$ for the review 'Great battery life'. It assigns 0.7 to the positive label and 0.3 to the negative label. With a 0.5 threshold it predicts label 1. The value 0.7 itself is the model's confidence, not the label.",
+          "skills": [
+            { "id": "S1", "objective": "Interpret conditional model notation and parameters", "required": true, "transferRequired": true }
+          ]
+        },
+        {
+          "id": "U2",
+          "title": "Dataset likelihood",
+          "objective": "Construct likelihood under the stated independence assumption",
+          "sourcePages": [2],
+          "explanation": "The likelihood $L(\\theta)$ is the probability the model assigns to the observed labels. If labels are conditionally independent given their inputs and $\\theta$, it factorises: $L(\\theta) = \\prod_i p(y_i \\mid x_i, \\theta)$. The labels are fixed data; fitting changes $\\theta$, which changes every factor. Independence is an assumption, not a guarantee about the data.",
+          "workedExample": "Three examples receive true-label probabilities 0.9, 0.6 and 0.5. Assuming conditional independence, $L(\\theta) = 0.9 \\times 0.6 \\times 0.5 = 0.27$. A different $\\theta$ would give different probabilities and a different likelihood.",
+          "skills": [
+            { "id": "S2", "objective": "Construct likelihood under the stated independence assumption", "required": true, "transferRequired": true }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-topic-objective",
+      "title": "Optimisation objective",
+      "position": 2,
+      "units": [
+        {
+          "id": "U3",
+          "title": "Log objective",
+          "objective": "Connect likelihood, log likelihood and negative log likelihood",
+          "sourcePages": [3],
+          "explanation": "Because $\\log$ is strictly increasing on positive values, $L$ and $\\log L$ have the same maximisers. The log also turns the product into a sum: $\\log L = \\sum_i \\log p(y_i \\mid x_i, \\theta)$. Negating turns maximisation into minimisation, so maximising $L$ is equivalent to minimising the negative log likelihood. Dividing by the fixed dataset size $n$ (a mean) rescales without moving the minimiser.",
+          "workedExample": "With true-label probabilities 0.9 and 0.5: $\\log L = \\ln 0.9 + \\ln 0.5 \\approx -0.105 - 0.693 = -0.798$. Summed NLL is 0.798 and mean NLL is 0.399; both are minimised by the same $\\theta$.",
+          "skills": [
+            { "id": "S3", "objective": "Connect likelihood, log likelihood and negative log likelihood", "required": true, "transferRequired": true }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-topic-bce",
+      "title": "Binary cross-entropy",
+      "position": 3,
+      "units": [
+        {
+          "id": "U4",
+          "title": "Meaning of binary cross-entropy",
+          "objective": "Explain what BCE measures and distinguish it from accuracy",
+          "sourcePages": [4],
+          "explanation": "Binary cross-entropy penalises a model for assigning low probability to the true label. Since $-\\log q$ grows without bound as $q \\to 0$, a confident wrong prediction gets a large loss. BCE scores probabilities, not just whether the thresholded class is correct, so equal accuracy does not imply equal BCE. A low BCE does not certify calibration.",
+          "workedExample": "For true label 1, model A predicts 0.95 and model B predicts 0.55. Both are correct at a 0.5 threshold, but A's loss is $-\\ln 0.95 \\approx 0.051$ while B's is $-\\ln 0.55 \\approx 0.598$.",
+          "skills": [
+            { "id": "S4", "objective": "Explain what BCE measures and distinguish it from accuracy", "required": true, "transferRequired": true }
+          ]
+        },
+        {
+          "id": "U5",
+          "title": "Calculation and application",
+          "objective": "Calculate BCE and use aggregate losses to compare predictions",
+          "sourcePages": [5],
+          "explanation": "$\\mathrm{BCE}(y,p) = -[\\,y \\log p + (1-y)\\log(1-p)\\,]$ with natural logs and $p \\in (0,1)$. For $y=1$ only $-\\log p$ remains; for $y=0$ only $-\\log(1-p)$ remains. The loss is never negative. To compare models on the same examples, average each model's per-example losses and prefer the lower mean.",
+          "workedExample": "For $y=0$ and $p=0.4$: $\\mathrm{BCE} = -\\ln(1-0.4) = -\\ln 0.6 \\approx 0.511$. The class-1 probability 0.4 must be converted to the true-label probability 0.6 before taking the log.",
+          "skills": [
+            { "id": "S5", "objective": "Calculate BCE and use aggregate losses to compare predictions", "required": true, "transferRequired": true }
+          ]
+        },
+        {
+          "id": "U6",
+          "title": "Derivation",
+          "objective": "Derive BCE from the Bernoulli likelihood",
+          "sourcePages": [6],
+          "explanation": "A Bernoulli label has probability $p^y(1-p)^{1-y}$, which equals $p$ when $y=1$ and $1-p$ when $y=0$. Taking $-\\log$, the log of a product becomes a sum and each exponent comes down: $-[\\,y\\log p + (1-y)\\log(1-p)\\,]$. Summed over examples this is the dataset NLL. Two-class one-hot cross-entropy with $t=(1-y,y)$ and probabilities $(1-p,p)$ reduces to the same expression.",
+          "workedExample": "For $y=0$: $-[\\,0\\cdot\\log p + 1\\cdot\\log(1-p)\\,] = -\\log(1-p)$, matching the class-0 branch of BCE.",
+          "skills": [
+            { "id": "S6", "objective": "Derive BCE from the Bernoulli likelihood", "required": true, "transferRequired": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

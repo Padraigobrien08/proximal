@@ -1,0 +1,753 @@
+{
+  "bankId": "demo-bank-v1",
+  "note": "Authored fixtures. Status authored_fixture until the owner reviews each question with `npm run content:review`.",
+  "questions": [
+    {
+      "id": "S1-A",
+      "skillId": "S1",
+      "version": 1,
+      "familyId": "S1-roles",
+      "isTransfer": false,
+      "taskType": "explain",
+      "prompt": "In $p(y \\mid x, \\theta)$, what do $x$, $y$ and $\\theta$ represent for sentiment classification?",
+      "reference": {
+        "summary": "x is the input text (e.g. a review); y is its sentiment label (e.g. 1 = positive, 0 = negative); theta is the model's learned parameters (weights, optionally a bias).",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S1A-x", "essential": true, "description": "Identifies x as the input (the text being classified).", "acceptableEquivalents": ["the review", "input features of the text", "the document"], "fatalIfNotMet": false },
+          { "id": "S1A-y", "essential": true, "description": "Identifies y as the sentiment label being predicted.", "acceptableEquivalents": ["the class", "positive/negative label", "the target"], "fatalIfNotMet": false },
+          { "id": "S1A-theta", "essential": true, "description": "Identifies theta as the learned model parameters/weights. An explicit relevant mention of a bias is acceptable but not required.", "acceptableEquivalents": ["weights and biases", "model parameters", "learned coefficients"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Ask which symbol is given to the model, which one is being predicted, and which one is adjusted during training.",
+        "Worked step: in $p(y \\mid x, \\theta)$ the bar separates what is predicted ($y$) from what is conditioned on: the input $x$ and the parameters $\\theta$."
+      ],
+      "sourceRefs": [{ "page": 1 }],
+      "revealSkillIds": ["S1"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "x is the input text being classified, for example a movie review. y is the sentiment label for that text, such as 1 for positive and 0 for negative. theta is the set of learned model parameters (the weights, and possibly a bias).",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S1A-x", "status": "met", "answerQuote": "x is the input text being classified", "briefReason": "Correctly identifies the input." },
+            { "criterionId": "S1A-y", "status": "met", "answerQuote": "y is the sentiment label for that text", "briefReason": "Correctly identifies the label." },
+            { "criterionId": "S1A-theta", "status": "met", "answerQuote": "theta is the set of learned model parameters", "briefReason": "Correctly identifies the parameters." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "x is the review text and y is whether it is positive or negative. theta is the probability.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S1A-x", "status": "met", "answerQuote": "x is the review text", "briefReason": "Input identified." },
+            { "criterionId": "S1A-y", "status": "met", "answerQuote": "y is whether it is positive or negative", "briefReason": "Label identified." },
+            { "criterionId": "S1A-theta", "status": "not_met", "answerQuote": "theta is the probability", "briefReason": "Theta is the parameters, not the output probability." }
+          ],
+          "possibleMisconception": "Confuses the model parameters with the model's output probability."
+        },
+        {
+          "label": "wrong",
+          "answer": "x is the probability, y is the prediction and theta is the dataset.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S1A-x", "status": "not_met", "answerQuote": "x is the probability", "briefReason": "x is the input, not a probability." },
+            { "criterionId": "S1A-y", "status": "not_met", "answerQuote": null, "briefReason": "y is the true label, not the model's prediction." },
+            { "criterionId": "S1A-theta", "status": "not_met", "answerQuote": "theta is the dataset", "briefReason": "Theta is learned parameters, not data." }
+          ],
+          "possibleMisconception": "Treats the data and the parameters as interchangeable."
+        }
+      ]
+    },
+    {
+      "id": "S1-B",
+      "skillId": "S1",
+      "version": 1,
+      "familyId": "S1-misconception-correction",
+      "isTransfer": true,
+      "taskType": "apply",
+      "prompt": "A student says $\\theta$ is the corpus and $p = 0.85$ means the predicted label is 0.85. Correct both claims for a binary classifier.",
+      "reference": {
+        "summary": "Theta is the learned parameters, not the corpus (the corpus is training data). p = 0.85 is p(y=1 | x, theta), a probability, not a label; labels are 0 or 1. A class prediction needs a decision rule, e.g. predict 1 if p >= 0.5.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S1B-theta", "essential": true, "description": "States that theta is the learned model parameters, not the corpus (the corpus-as-theta claim is corrected, not retained).", "acceptableEquivalents": ["theta are the weights", "the corpus is the training data used to fit theta"], "fatalIfNotMet": true },
+          { "id": "S1B-prob", "essential": true, "description": "States that 0.85 is a probability (of class 1), not a class label (labels are 0 or 1).", "acceptableEquivalents": ["0.85 is the model's confidence that y = 1"], "fatalIfNotMet": true },
+          { "id": "S1B-rule", "essential": true, "description": "States that the predicted class comes from a decision rule such as a threshold.", "acceptableEquivalents": ["predict 1 if p >= 0.5", "argmax over the two classes"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Separate three things: what the model learns, what the model outputs, and how an output becomes a class.",
+        "Worked step: $\\theta$ is adjusted during training while the data are fixed. The output $p = p(y=1 \\mid x, \\theta)$ lies in $(0,1)$; turning it into a class needs a rule such as a threshold."
+      ],
+      "sourceRefs": [{ "page": 1 }],
+      "revealSkillIds": ["S1"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "Theta is not the corpus; it is the learned parameters (weights) of the model, while the corpus is the training data used to fit them. p = 0.85 is the model's probability that y = 1 for this input, not a label: labels are 0 or 1. To predict a class we apply a decision rule, e.g. predict 1 if p is at least 0.5, which here gives label 1.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S1B-theta", "status": "met", "answerQuote": "it is the learned parameters (weights) of the model", "briefReason": "Corrects the corpus claim." },
+            { "criterionId": "S1B-prob", "status": "met", "answerQuote": "p = 0.85 is the model's probability that y = 1 for this input, not a label", "briefReason": "Distinguishes probability from label." },
+            { "criterionId": "S1B-rule", "status": "met", "answerQuote": "we apply a decision rule, e.g. predict 1 if p is at least 0.5", "briefReason": "States a threshold rule." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "Theta is the model's weights, not the corpus. And 0.85 is a probability, so the label is 1.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S1B-theta", "status": "met", "answerQuote": "Theta is the model's weights, not the corpus", "briefReason": "Corrects the corpus claim." },
+            { "criterionId": "S1B-prob", "status": "met", "answerQuote": "0.85 is a probability", "briefReason": "Identifies it as a probability." },
+            { "criterionId": "S1B-rule", "status": "partial", "answerQuote": "so the label is 1", "briefReason": "Implies a threshold without stating the decision rule." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Theta is the corpus of documents the model learns from, and yes the label is 0.85 because that is what the model outputs.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S1B-theta", "status": "not_met", "answerQuote": "Theta is the corpus of documents the model learns from", "briefReason": "Retains the corpus-as-theta error." },
+            { "criterionId": "S1B-prob", "status": "not_met", "answerQuote": "the label is 0.85", "briefReason": "Retains the probability-as-label error." },
+            { "criterionId": "S1B-rule", "status": "not_met", "answerQuote": null, "briefReason": "No decision rule given." }
+          ],
+          "possibleMisconception": "Treats the model output as the label and the data as the parameters."
+        }
+      ]
+    },
+    {
+      "id": "S2-A",
+      "skillId": "S2",
+      "version": 1,
+      "familyId": "S2-write-likelihood",
+      "isTransfer": false,
+      "taskType": "derive",
+      "prompt": "Write the conditional likelihood for three labelled examples $(x_1,y_1), (x_2,y_2), (x_3,y_3)$ and state the assumption used.",
+      "reference": {
+        "summary": "L(theta) = p(y1 | x1, theta) * p(y2 | x2, theta) * p(y3 | x3, theta), assuming labels are conditionally independent given their inputs and theta under the model.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S2A-product", "essential": true, "description": "Writes L(theta) as the product of the three true-label conditional probabilities p(y_i | x_i, theta).", "acceptableEquivalents": ["product over i = 1..3 of p(y_i | x_i, theta)"], "fatalIfNotMet": false },
+          { "id": "S2A-assumption", "essential": true, "description": "States conditional independence of the labels given their inputs and the parameters (under the model).", "acceptableEquivalents": ["examples are independent given x and theta", "i.i.d. conditional on inputs"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Under the model, how do you combine the probabilities of separate events that you assume do not influence each other?",
+        "Worked step: for one example the model gives $p(y_1 \\mid x_1, \\theta)$. Multiply one such factor per example; that step needs an independence assumption."
+      ],
+      "sourceRefs": [{ "page": 2 }],
+      "revealSkillIds": ["S2"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "L(theta) = p(y1 | x1, theta) * p(y2 | x2, theta) * p(y3 | x3, theta). This uses the assumption that the labels are conditionally independent given their inputs and the parameters.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S2A-product", "status": "met", "answerQuote": "L(theta) = p(y1 | x1, theta) * p(y2 | x2, theta) * p(y3 | x3, theta)", "briefReason": "Correct product." },
+            { "criterionId": "S2A-assumption", "status": "met", "answerQuote": "the labels are conditionally independent given their inputs and the parameters", "briefReason": "States the assumption." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "L(theta) = p(y1 | x1, theta) * p(y2 | x2, theta) * p(y3 | x3, theta).",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S2A-product", "status": "met", "answerQuote": "L(theta) = p(y1 | x1, theta) * p(y2 | x2, theta) * p(y3 | x3, theta)", "briefReason": "Correct product." },
+            { "criterionId": "S2A-assumption", "status": "not_met", "answerQuote": null, "briefReason": "No assumption stated." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "The likelihood is the accuracy on the three examples.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S2A-product", "status": "not_met", "answerQuote": "The likelihood is the accuracy", "briefReason": "Likelihood is a product of probabilities, not accuracy." },
+            { "criterionId": "S2A-assumption", "status": "not_met", "answerQuote": null, "briefReason": "No assumption stated." }
+          ],
+          "possibleMisconception": "Confuses likelihood with accuracy."
+        }
+      ]
+    },
+    {
+      "id": "S2-B",
+      "skillId": "S2",
+      "version": 1,
+      "familyId": "S2-numeric-fitting",
+      "isTransfer": true,
+      "taskType": "apply",
+      "prompt": "True-label probabilities for two independent examples are 0.7 and 0.8. Write their joint likelihood and explain what changes when fitting the model.",
+      "reference": {
+        "summary": "Joint likelihood = 0.7 x 0.8 = 0.56. During fitting the observed labels stay fixed; theta changes, which changes the probabilities assigned to the true labels.",
+        "numericChecks": [{ "criterionId": "S2B-value", "value": 0.56, "tolerance": 0.005 }]
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S2B-value", "essential": true, "description": "Joint likelihood is the product 0.7 x 0.8 = 0.56.", "acceptableEquivalents": ["0.56", "56/100"], "fatalIfNotMet": false },
+          { "id": "S2B-theta", "essential": true, "description": "States that theta (the parameters) is what changes during fitting, and that this changes the probabilities.", "acceptableEquivalents": ["the weights are updated"], "fatalIfNotMet": false },
+          { "id": "S2B-labels", "essential": true, "description": "States that the observed labels stay fixed during fitting.", "acceptableEquivalents": ["the data do not change"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Independence lets you multiply. Then ask: during training, which quantities are data and which are adjustable?",
+        "Worked step: $L = 0.7 \\times 0.8$. During fitting the labels are observed and fixed; only $\\theta$ moves, and each $p(y_i \\mid x_i, \\theta)$ moves with it."
+      ],
+      "sourceRefs": [{ "page": 2 }],
+      "revealSkillIds": ["S2"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "The joint likelihood is 0.7 × 0.8 = 0.56. When fitting, the observed labels stay fixed and we change the parameters theta, which changes the probabilities the model assigns to those true labels.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S2B-value", "status": "met", "answerQuote": "0.7 × 0.8 = 0.56", "briefReason": "Correct product." },
+            { "criterionId": "S2B-theta", "status": "met", "answerQuote": "we change the parameters theta, which changes the probabilities", "briefReason": "Identifies what changes." },
+            { "criterionId": "S2B-labels", "status": "met", "answerQuote": "the observed labels stay fixed", "briefReason": "Identifies what stays fixed." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "Joint likelihood = 0.7 × 0.8 = 0.56. Fitting changes the labels to make the likelihood bigger.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S2B-value", "status": "met", "answerQuote": "0.7 × 0.8 = 0.56", "briefReason": "Correct product." },
+            { "criterionId": "S2B-theta", "status": "not_met", "answerQuote": null, "briefReason": "Does not say theta changes." },
+            { "criterionId": "S2B-labels", "status": "not_met", "answerQuote": "Fitting changes the labels", "briefReason": "Labels are fixed data during fitting." }
+          ],
+          "possibleMisconception": "Thinks fitting changes the observed labels."
+        },
+        {
+          "label": "wrong",
+          "answer": "0.7 + 0.8 = 1.5",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S2B-value", "status": "not_met", "answerQuote": "0.7 + 0.8 = 1.5", "briefReason": "Independent probabilities multiply; a probability cannot exceed 1." },
+            { "criterionId": "S2B-theta", "status": "not_met", "answerQuote": null, "briefReason": "Not addressed." },
+            { "criterionId": "S2B-labels", "status": "not_met", "answerQuote": null, "briefReason": "Not addressed." }
+          ],
+          "possibleMisconception": "Adds probabilities of independent events."
+        }
+      ]
+    },
+    {
+      "id": "S3-A",
+      "skillId": "S3",
+      "version": 1,
+      "familyId": "S3-equivalence",
+      "isTransfer": false,
+      "taskType": "explain",
+      "prompt": "Explain why maximising likelihood is equivalent to minimising negative log likelihood.",
+      "reference": {
+        "summary": "log is strictly increasing on positive values, so L and log L share maximisers; log turns the product into a sum; negating reverses the optimisation direction, so maximising log L equals minimising -log L.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S3A-mono", "essential": true, "description": "States that log is strictly increasing (monotonic) on positive values, so it preserves the maximiser.", "acceptableEquivalents": ["log is monotone increasing", "order-preserving transformation"], "fatalIfNotMet": false },
+          { "id": "S3A-sum", "essential": true, "description": "States that the log turns the product into a sum.", "acceptableEquivalents": ["log of a product is a sum of logs"], "fatalIfNotMet": false },
+          { "id": "S3A-neg", "essential": true, "description": "States that negation turns maximisation into minimisation.", "acceptableEquivalents": ["multiplying by -1 flips the direction"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Think about what a strictly increasing function does to the location of a maximum.",
+        "Worked step: if $a > b > 0$ then $\\log a > \\log b$, so $\\log L$ has the same maximiser as $L$; and the log of a product is a sum of logs."
+      ],
+      "sourceRefs": [{ "page": 3 }],
+      "revealSkillIds": ["S3"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "The log is strictly increasing for positive values, so whichever theta maximises L also maximises log L. Taking the log turns the product of probabilities into a sum of log probabilities. Multiplying by −1 flips the direction, so maximising log L is the same as minimising −log L, the negative log likelihood.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S3A-mono", "status": "met", "answerQuote": "The log is strictly increasing for positive values", "briefReason": "Monotonicity stated." },
+            { "criterionId": "S3A-sum", "status": "met", "answerQuote": "turns the product of probabilities into a sum of log probabilities", "briefReason": "Product-to-sum stated." },
+            { "criterionId": "S3A-neg", "status": "met", "answerQuote": "Multiplying by −1 flips the direction", "briefReason": "Negation stated." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "Taking the log turns the product into a sum, and putting a minus sign in front turns a maximisation into a minimisation.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S3A-mono", "status": "not_met", "answerQuote": null, "briefReason": "Does not explain why the maximiser is preserved." },
+            { "criterionId": "S3A-sum", "status": "met", "answerQuote": "Taking the log turns the product into a sum", "briefReason": "Product-to-sum stated." },
+            { "criterionId": "S3A-neg", "status": "met", "answerQuote": "putting a minus sign in front turns a maximisation into a minimisation", "briefReason": "Negation stated." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Because the negative log likelihood is just the likelihood multiplied by −1.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S3A-mono", "status": "not_met", "answerQuote": null, "briefReason": "Not addressed." },
+            { "criterionId": "S3A-sum", "status": "not_met", "answerQuote": null, "briefReason": "Not addressed." },
+            { "criterionId": "S3A-neg", "status": "not_met", "answerQuote": "the likelihood multiplied by −1", "briefReason": "NLL negates the log likelihood, not the likelihood." }
+          ],
+          "possibleMisconception": "Omits the log transformation."
+        }
+      ]
+    },
+    {
+      "id": "S3-B",
+      "skillId": "S3",
+      "version": 1,
+      "familyId": "S3-objective-edits",
+      "isTransfer": true,
+      "taskType": "apply",
+      "prompt": "A colleague replaces summed NLL by mean NLL and maximises it. Which change preserves the optimum and which changes the objective incorrectly?",
+      "reference": {
+        "summary": "Using the mean divides by the fixed positive n and preserves the minimiser. Maximising NLL reverses the intended direction; NLL must be minimised.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S3B-mean", "essential": true, "description": "States that dividing by the fixed positive dataset size n (mean instead of sum) preserves the minimiser.", "acceptableEquivalents": ["scaling by a positive constant does not move the optimum"], "fatalIfNotMet": false },
+          { "id": "S3B-direction", "essential": true, "description": "Identifies maximising NLL as the incorrect change because NLL should be minimised.", "acceptableEquivalents": ["maximising NLL finds the worst fit"], "fatalIfNotMet": true }
+        ]
+      },
+      "hints": [
+        "Treat the two changes separately: rescaling by a positive constant, and switching between maximising and minimising.",
+        "Worked step: mean NLL $= \\frac{1}{n}\\times$ summed NLL with $n$ fixed and positive, so both have the same minimiser. Now ask which direction NLL should be optimised."
+      ],
+      "sourceRefs": [{ "page": 3 }],
+      "revealSkillIds": ["S3"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "Using the mean instead of the sum is fine: it divides by the fixed dataset size n > 0, which rescales the objective but keeps the same minimiser. Maximising NLL is the mistake: NLL must be minimised, so maximising it pushes theta towards the worst-fitting parameters.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S3B-mean", "status": "met", "answerQuote": "it divides by the fixed dataset size n > 0, which rescales the objective but keeps the same minimiser", "briefReason": "Mean preserves the minimiser." },
+            { "criterionId": "S3B-direction", "status": "met", "answerQuote": "Maximising NLL is the mistake: NLL must be minimised", "briefReason": "Direction error identified." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "Maximising the NLL is wrong because NLL should be minimised. I'm not sure whether using the mean changes anything.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S3B-mean", "status": "not_met", "answerQuote": null, "briefReason": "Does not resolve the mean question." },
+            { "criterionId": "S3B-direction", "status": "met", "answerQuote": "Maximising the NLL is wrong because NLL should be minimised", "briefReason": "Direction error identified." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Both changes are fine because they are just rescalings.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S3B-mean", "status": "partial", "answerQuote": "Both changes are fine", "briefReason": "Correct about the mean but gives no reason specific to it." },
+            { "criterionId": "S3B-direction", "status": "not_met", "answerQuote": "Both changes are fine because they are just rescalings", "briefReason": "Maximising NLL reverses the objective; it is not a rescaling." }
+          ],
+          "possibleMisconception": "Treats negation/direction as a harmless rescaling."
+        }
+      ]
+    },
+    {
+      "id": "S4-A",
+      "skillId": "S4",
+      "version": 1,
+      "familyId": "S4-what-it-penalises",
+      "isTransfer": false,
+      "taskType": "explain",
+      "prompt": "What does binary cross-entropy (BCE) penalise, and how does a high-confidence wrong prediction affect it?",
+      "reference": {
+        "summary": "BCE penalises assigning low probability to the true label. A high-confidence wrong prediction puts very little probability on the true label, so its loss is large (it grows without bound as that probability approaches 0).",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S4A-penalty", "essential": true, "description": "States that BCE penalises assigning low probability to the true label.", "acceptableEquivalents": ["penalises low predicted probability for the correct class", "rewards high probability on the true label"], "fatalIfNotMet": false },
+          { "id": "S4A-confident-wrong", "essential": true, "description": "States that a high-confidence wrong prediction receives a large loss.", "acceptableEquivalents": ["confidently wrong predictions are heavily penalised", "loss goes to infinity as the true-label probability goes to 0"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Ask what the loss looks at: the predicted class, or the probability given to the true label?",
+        "Worked step: for $y=1$ the loss is $-\\log p$. If $p$ is small (the model is confident in the wrong class), $-\\log p$ is large."
+      ],
+      "sourceRefs": [{ "page": 4 }],
+      "revealSkillIds": ["S4"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "BCE penalises the model when it assigns a low probability to the true label. A high-confidence wrong prediction, such as p = 0.99 for class 1 when the true label is 0, puts very little probability on the true label, so the loss is very large.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S4A-penalty", "status": "met", "answerQuote": "BCE penalises the model when it assigns a low probability to the true label", "briefReason": "Correctly states what is penalised." },
+            { "criterionId": "S4A-confident-wrong", "status": "met", "answerQuote": "puts very little probability on the true label, so the loss is very large", "briefReason": "Correctly describes the effect of confident errors." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "BCE measures how well the predicted probabilities match the labels. Lower is better.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S4A-penalty", "status": "partial", "answerQuote": "how well the predicted probabilities match the labels", "briefReason": "Points at probabilities but does not say low true-label probability is penalised." },
+            { "criterionId": "S4A-confident-wrong", "status": "not_met", "answerQuote": null, "briefReason": "Confident wrong predictions not addressed." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "BCE counts how many predictions are wrong, so a high-confidence wrong prediction counts the same as any other mistake.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S4A-penalty", "status": "not_met", "answerQuote": "BCE counts how many predictions are wrong", "briefReason": "That describes error rate, not BCE." },
+            { "criterionId": "S4A-confident-wrong", "status": "not_met", "answerQuote": "counts the same as any other mistake", "briefReason": "Confident errors cost more under BCE." }
+          ],
+          "possibleMisconception": "Treats BCE as an error count."
+        }
+      ]
+    },
+    {
+      "id": "S4-B",
+      "skillId": "S4",
+      "version": 1,
+      "familyId": "S4-vs-accuracy",
+      "isTransfer": true,
+      "taskType": "apply",
+      "prompt": "Two models have the same classification accuracy. Must they have the same BCE? Explain.",
+      "reference": {
+        "summary": "No. Accuracy depends only on thresholded class decisions; BCE depends on the probabilities assigned to the true labels, which can differ even when every class decision is identical.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S4B-answer", "essential": true, "description": "Answers no: equal accuracy does not imply equal BCE.", "acceptableEquivalents": ["not necessarily"], "fatalIfNotMet": true },
+          { "id": "S4B-mechanism", "essential": true, "description": "Explains that BCE depends on the probabilities (confidence) assigned to the true labels, which can differ even when thresholded class decisions are identical.", "acceptableEquivalents": ["BCE is sensitive to confidence while accuracy is not"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Two predictions can land on the same side of the threshold with very different probabilities.",
+        "Worked step: with $y=1$, $p=0.95$ and $p=0.55$ are both classified correctly at 0.5, but $-\\ln 0.95 \\approx 0.05$ while $-\\ln 0.55 \\approx 0.60$."
+      ],
+      "sourceRefs": [{ "page": 4 }],
+      "revealSkillIds": ["S4"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "No. Accuracy only counts whether the thresholded class is right, but BCE depends on the probabilities the models assign to the true labels. One model could predict 0.95 for correct positives while the other predicts 0.55; both are correct at a 0.5 threshold, but the second has a much higher BCE.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S4B-answer", "status": "met", "answerQuote": "No.", "briefReason": "Correct answer." },
+            { "criterionId": "S4B-mechanism", "status": "met", "answerQuote": "BCE depends on the probabilities the models assign to the true labels", "briefReason": "Mechanism explained with an example." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "No, they can have different BCE.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S4B-answer", "status": "met", "answerQuote": "No, they can have different BCE", "briefReason": "Correct answer." },
+            { "criterionId": "S4B-mechanism", "status": "not_met", "answerQuote": null, "briefReason": "No mechanism given." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Yes, BCE is just another way of measuring accuracy, so equal accuracy means equal BCE.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S4B-answer", "status": "not_met", "answerQuote": "equal accuracy means equal BCE", "briefReason": "Incorrect conclusion." },
+            { "criterionId": "S4B-mechanism", "status": "not_met", "answerQuote": "BCE is just another way of measuring accuracy", "briefReason": "BCE scores probabilities, not decisions." }
+          ],
+          "possibleMisconception": "Treats BCE as equivalent to accuracy."
+        }
+      ]
+    },
+    {
+      "id": "S5-A",
+      "skillId": "S5",
+      "version": 1,
+      "familyId": "S5-single-example",
+      "isTransfer": false,
+      "taskType": "calculate",
+      "prompt": "For $y = 1$ and $p(y=1) = 0.8$, calculate BCE using natural logarithms. Show the expression.",
+      "reference": {
+        "summary": "BCE = -[1 ln 0.8 + 0 ln 0.2] = -ln(0.8) = 0.22314355 (about 0.223). The loss is positive.",
+        "numericChecks": [{ "criterionId": "S5A-value", "value": 0.22314355, "tolerance": 0.005 }]
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S5A-branch", "essential": true, "description": "Uses the y = 1 branch: the loss is -ln(p) with p = 0.8 (the (1 - y) term vanishes).", "acceptableEquivalents": ["-log(0.8)", "-ln 0.8"], "fatalIfNotMet": false },
+          { "id": "S5A-sign", "essential": true, "description": "The reported loss has the correct (positive) sign; no sign error.", "acceptableEquivalents": [], "fatalIfNotMet": true },
+          { "id": "S5A-value", "essential": true, "description": "Numerical value approximately 0.223 (tolerance 0.005 if rounded).", "acceptableEquivalents": ["0.22", "0.2231"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Write out $\\mathrm{BCE}(y,p) = -[\\,y\\log p + (1-y)\\log(1-p)\\,]$ and substitute $y = 1$.",
+        "Worked step: with $y = 1$ the second term has factor $(1-1) = 0$, leaving $-\\ln(0.8)$. A loss of this form is never negative."
+      ],
+      "sourceRefs": [{ "page": 5 }],
+      "revealSkillIds": ["S5"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "BCE = −[1·ln(0.8) + (1−1)·ln(1−0.8)] = −ln(0.8) ≈ 0.223",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S5A-branch", "status": "met", "answerQuote": "−ln(0.8)", "briefReason": "Correct branch." },
+            { "criterionId": "S5A-sign", "status": "met", "answerQuote": "≈ 0.223", "briefReason": "Positive loss." },
+            { "criterionId": "S5A-value", "status": "met", "answerQuote": "0.223", "briefReason": "Correct value." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "Since y = 1 only the first term matters: −ln(0.8). I'm not sure of the exact number.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S5A-branch", "status": "met", "answerQuote": "only the first term matters: −ln(0.8)", "briefReason": "Correct branch." },
+            { "criterionId": "S5A-sign", "status": "met", "answerQuote": "−ln(0.8)", "briefReason": "The expression has the correct sign." },
+            { "criterionId": "S5A-value", "status": "not_met", "answerQuote": null, "briefReason": "No numerical value given." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "BCE = ln(0.8) = -0.223",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S5A-branch", "status": "partial", "answerQuote": "ln(0.8)", "briefReason": "Uses the right probability but drops the leading minus sign." },
+            { "criterionId": "S5A-sign", "status": "not_met", "answerQuote": "-0.223", "briefReason": "Negative loss: sign error." },
+            { "criterionId": "S5A-value", "status": "not_met", "answerQuote": "-0.223", "briefReason": "Value has the wrong sign." }
+          ],
+          "possibleMisconception": "Drops the leading minus sign in BCE, producing a negative loss."
+        }
+      ]
+    },
+    {
+      "id": "S5-B",
+      "skillId": "S5",
+      "version": 1,
+      "familyId": "S5-model-comparison",
+      "isTransfer": true,
+      "taskType": "apply",
+      "prompt": "Labels are $[1, 0]$. Model A gives class-1 probabilities $[0.8, 0.4]$; model B gives $[0.6, 0.1]$. Calculate each model's mean BCE and select the lower-loss model.",
+      "reference": {
+        "summary": "A = (-ln 0.8 - ln 0.6)/2 = 0.366985; B = (-ln 0.6 - ln 0.9)/2 = 0.308093. B has the lower mean BCE. The second label is 0, so 1 - p is used.",
+        "numericChecks": [
+          { "criterionId": "S5B-meanA", "value": 0.366985, "tolerance": 0.005 },
+          { "criterionId": "S5B-meanB", "value": 0.308093, "tolerance": 0.005 }
+        ]
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S5B-complement", "essential": true, "description": "Uses 1 - p for the label-0 example (0.6 for model A, 0.9 for model B).", "acceptableEquivalents": ["-ln(1 - 0.4)", "-ln(1 - 0.1)"], "fatalIfNotMet": false },
+          { "id": "S5B-meanA", "essential": true, "description": "Mean BCE for model A approximately 0.367 (tolerance 0.005).", "acceptableEquivalents": ["0.367", "0.37"], "fatalIfNotMet": false },
+          { "id": "S5B-meanB", "essential": true, "description": "Mean BCE for model B approximately 0.308 (tolerance 0.005).", "acceptableEquivalents": ["0.308", "0.31"], "fatalIfNotMet": false },
+          { "id": "S5B-choice", "essential": true, "description": "Selects model B as the lower-loss model.", "acceptableEquivalents": ["B is better"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "For each example decide whether the true label is 1 or 0, then use $p$ or $1-p$ accordingly before averaging.",
+        "Worked step: for model A, example 1 has $y=1$ so its loss is $-\\ln 0.8$; example 2 has $y=0$ so its loss is $-\\ln(1-0.4) = -\\ln 0.6$. Average the two."
+      ],
+      "sourceRefs": [{ "page": 5 }],
+      "revealSkillIds": ["S5"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "A: (−ln 0.8 − ln 0.6)/2 = (0.223 + 0.511)/2 ≈ 0.367. B: (−ln 0.6 − ln 0.9)/2 = (0.511 + 0.105)/2 ≈ 0.308. The second example has label 0, so I used 1 − p. Model B has the lower mean BCE.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S5B-complement", "status": "met", "answerQuote": "The second example has label 0, so I used 1 − p", "briefReason": "Complement used correctly." },
+            { "criterionId": "S5B-meanA", "status": "met", "answerQuote": "≈ 0.367", "briefReason": "Correct mean for A." },
+            { "criterionId": "S5B-meanB", "status": "met", "answerQuote": "≈ 0.308", "briefReason": "Correct mean for B." },
+            { "criterionId": "S5B-choice", "status": "met", "answerQuote": "Model B has the lower mean BCE", "briefReason": "Correct selection." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "A: (0.223 + 0.511)/2 ≈ 0.367. For B I am not sure how to handle the second example.",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S5B-complement", "status": "partial", "answerQuote": "(0.223 + 0.511)/2", "briefReason": "Complement used for A only." },
+            { "criterionId": "S5B-meanA", "status": "met", "answerQuote": "≈ 0.367", "briefReason": "Correct mean for A." },
+            { "criterionId": "S5B-meanB", "status": "not_met", "answerQuote": null, "briefReason": "Not computed." },
+            { "criterionId": "S5B-choice", "status": "not_met", "answerQuote": null, "briefReason": "No model selected." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "A: (−ln 0.8 − ln 0.4)/2 ≈ 0.570. B: (−ln 0.6 − ln 0.1)/2 ≈ 1.407. Model A is lower.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S5B-complement", "status": "not_met", "answerQuote": "− ln 0.4", "briefReason": "Uses p instead of 1 - p for the label-0 example." },
+            { "criterionId": "S5B-meanA", "status": "not_met", "answerQuote": "≈ 0.570", "briefReason": "Incorrect value." },
+            { "criterionId": "S5B-meanB", "status": "not_met", "answerQuote": "≈ 1.407", "briefReason": "Incorrect value." },
+            { "criterionId": "S5B-choice", "status": "not_met", "answerQuote": "Model A is lower", "briefReason": "Incorrect selection." }
+          ],
+          "possibleMisconception": "Uses the class-1 probability for a label-0 example."
+        }
+      ]
+    },
+    {
+      "id": "S6-A",
+      "skillId": "S6",
+      "version": 1,
+      "familyId": "S6-bernoulli",
+      "isTransfer": false,
+      "taskType": "derive",
+      "prompt": "Starting from $p^y(1-p)^{1-y}$, derive the binary negative log-likelihood for one example.",
+      "reference": {
+        "summary": "-log[p^y (1-p)^(1-y)] = -[log p^y + log (1-p)^(1-y)] = -[y log p + (1-y) log(1-p)].",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S6A-neglog", "essential": true, "description": "Takes the negative log of the Bernoulli probability.", "acceptableEquivalents": ["-ln of the expression"], "fatalIfNotMet": false },
+          { "id": "S6A-identities", "essential": true, "description": "Uses log of a product = sum of logs and log of a power = exponent times log.", "acceptableEquivalents": ["log(ab) = log a + log b", "log a^b = b log a"], "fatalIfNotMet": false },
+          { "id": "S6A-result", "essential": true, "description": "Obtains -[y log p + (1 - y) log(1 - p)].", "acceptableEquivalents": ["-y log p - (1 - y) log(1 - p)"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Apply $-\\log$ to the whole expression first, then simplify one identity at a time.",
+        "Worked step: $-\\log[p^y(1-p)^{1-y}] = -[\\log p^y + \\log (1-p)^{1-y}]$; now use $\\log a^b = b\\log a$."
+      ],
+      "sourceRefs": [{ "page": 6 }],
+      "revealSkillIds": ["S6"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "Take the negative log: −log[p^y (1−p)^(1−y)]. The log of a product is a sum, so this is −[log p^y + log (1−p)^(1−y)]. The log of a power brings the exponent down, giving −[y log p + (1−y) log(1−p)], which is the binary cross-entropy.",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S6A-neglog", "status": "met", "answerQuote": "−log[p^y (1−p)^(1−y)]", "briefReason": "Negative log taken." },
+            { "criterionId": "S6A-identities", "status": "met", "answerQuote": "The log of a product is a sum", "briefReason": "Identities used." },
+            { "criterionId": "S6A-result", "status": "met", "answerQuote": "−[y log p + (1−y) log(1−p)]", "briefReason": "Correct result." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "The answer is −[y log p + (1−y) log(1−p)].",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S6A-neglog", "status": "not_met", "answerQuote": null, "briefReason": "No derivation step shown." },
+            { "criterionId": "S6A-identities", "status": "not_met", "answerQuote": null, "briefReason": "No identities used." },
+            { "criterionId": "S6A-result", "status": "met", "answerQuote": "−[y log p + (1−y) log(1−p)]", "briefReason": "Correct final expression." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Differentiate p^y(1−p)^(1−y) with respect to p and set it to zero.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S6A-neglog", "status": "not_met", "answerQuote": null, "briefReason": "No log taken." },
+            { "criterionId": "S6A-identities", "status": "not_met", "answerQuote": null, "briefReason": "Not addressed." },
+            { "criterionId": "S6A-result", "status": "not_met", "answerQuote": null, "briefReason": "Describes optimisation, not the NLL." }
+          ],
+          "possibleMisconception": "Confuses deriving the loss with optimising it."
+        }
+      ]
+    },
+    {
+      "id": "S6-B",
+      "skillId": "S6",
+      "version": 1,
+      "familyId": "S6-one-hot",
+      "isTransfer": true,
+      "taskType": "derive",
+      "prompt": "Show how two-class one-hot cross-entropy $-\\sum_k t_k \\log p_k$ becomes BCE when $t = (1-y, y)$ and the class probabilities are $(1-p, p)$.",
+      "reference": {
+        "summary": "k = 0 gives (1-y) log(1-p); k = 1 gives y log p. The sum is -[(1-y) log(1-p) + y log p] = -[y log p + (1-y) log(1-p)] = BCE(y, p). Reversed class ordering is fine when targets and probabilities are reversed consistently.",
+        "numericChecks": []
+      },
+      "rubric": {
+        "version": 1,
+        "criteria": [
+          { "id": "S6B-sub", "essential": true, "description": "Substitutes both entries of t and the class probabilities into the sum. Reversed class ordering is acceptable when targets and probabilities are reversed consistently.", "acceptableEquivalents": ["t_0 = 1 - y with p_0 = 1 - p and t_1 = y with p_1 = p"], "fatalIfNotMet": false },
+          { "id": "S6B-expand", "essential": true, "description": "Expands the two-term sum: -[(1 - y) log(1 - p) + y log p].", "acceptableEquivalents": ["-(1 - y) log(1 - p) - y log p"], "fatalIfNotMet": false },
+          { "id": "S6B-equiv", "essential": true, "description": "Identifies the result as BCE(y, p) = -[y log p + (1 - y) log(1 - p)].", "acceptableEquivalents": ["this is the binary cross-entropy"], "fatalIfNotMet": false }
+        ]
+      },
+      "hints": [
+        "Write the sum over $k = 0, 1$ as two separate terms.",
+        "Worked step: $k=0$ contributes $t_0\\log p_0 = (1-y)\\log(1-p)$; $k=1$ contributes $y\\log p$."
+      ],
+      "sourceRefs": [{ "page": 6 }],
+      "revealSkillIds": ["S6"],
+      "status": "authored_fixture",
+      "examples": [
+        {
+          "label": "correct",
+          "answer": "With k = 0, 1 we substitute t_0 = 1 − y, p_0 = 1 − p and t_1 = y, p_1 = p. The sum becomes −[(1 − y) log(1 − p) + y log p]. Reordering the two terms gives −[y log p + (1 − y) log(1 − p)], which is exactly BCE(y, p).",
+          "expectedOutcome": "pass",
+          "judgements": [
+            { "criterionId": "S6B-sub", "status": "met", "answerQuote": "we substitute t_0 = 1 − y, p_0 = 1 − p and t_1 = y, p_1 = p", "briefReason": "Both entries substituted." },
+            { "criterionId": "S6B-expand", "status": "met", "answerQuote": "The sum becomes −[(1 − y) log(1 − p) + y log p]", "briefReason": "Sum expanded." },
+            { "criterionId": "S6B-equiv", "status": "met", "answerQuote": "which is exactly BCE(y, p)", "briefReason": "Equivalence identified." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "partial",
+          "answer": "The sum has two terms, so you get −[(1 − y) log(1 − p) + y log p].",
+          "expectedOutcome": "partial",
+          "judgements": [
+            { "criterionId": "S6B-sub", "status": "partial", "answerQuote": "The sum has two terms", "briefReason": "Substitution implied, not shown." },
+            { "criterionId": "S6B-expand", "status": "met", "answerQuote": "−[(1 − y) log(1 − p) + y log p]", "briefReason": "Sum expanded." },
+            { "criterionId": "S6B-equiv", "status": "not_met", "answerQuote": null, "briefReason": "Does not connect the result to BCE." }
+          ],
+          "possibleMisconception": null
+        },
+        {
+          "label": "wrong",
+          "answer": "Cross-entropy only works for more than two classes, so it cannot become BCE.",
+          "expectedOutcome": "fail",
+          "judgements": [
+            { "criterionId": "S6B-sub", "status": "not_met", "answerQuote": null, "briefReason": "No substitution." },
+            { "criterionId": "S6B-expand", "status": "not_met", "answerQuote": null, "briefReason": "No expansion." },
+            { "criterionId": "S6B-equiv", "status": "not_met", "answerQuote": "it cannot become BCE", "briefReason": "Two-class cross-entropy reduces to BCE." }
+          ],
+          "possibleMisconception": "Believes categorical cross-entropy requires more than two classes."
+        }
+      ]
+    }
+  ]
+}

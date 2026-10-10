@@ -1,0 +1,12 @@
+{
+  "label": "Seeded example — not participant data",
+  "description": "A recorded example run through the same evidence and scheduling rules the app uses. Dates are fixed example dates, at least three elapsed days apart. No real learner produced these records.",
+  "startAt": "2026-03-02T09:00:00Z",
+  "events": [
+    { "day": 0, "hour": 9, "sessionKey": "day0-checkpoint", "mode": "review", "phase": "original", "questionId": "S4-A", "exposedBeforeSubmission": false, "outcome": "pass", "note": "Explanation question answered independently." },
+    { "day": 0, "hour": 9, "sessionKey": "day0-checkpoint", "mode": "review", "phase": "original", "questionId": "S5-A", "exposedBeforeSubmission": false, "outcome": "fail", "note": "Calculation answered independently with a sign error." },
+    { "day": 0, "hour": 9, "sessionKey": "day0-checkpoint", "mode": "review", "phase": "repair", "questionId": "S5-A", "exposedBeforeSubmission": true, "outcome": "pass", "note": "Corrected after feedback and a hint: completed with support." },
+    { "day": 3, "hour": 18, "sessionKey": "day3-checkpoint", "mode": "review", "phase": "original", "questionId": "S4-B", "exposedBeforeSubmission": false, "outcome": "pass", "note": "New-context explanation question (different family), three days later." },
+    { "day": 3, "hour": 18, "sessionKey": "day3-checkpoint", "mode": "review", "phase": "original", "questionId": "S5-B", "exposedBeforeSubmission": false, "outcome": "pass", "note": "Fresh comparison task (different family), answered independently." }
+  ]
+}
