@@ -53,7 +53,7 @@ describe("study plan", () => {
       activeSessions: [],
       skills: [skill({ topicId: "T1", topicTitle: "Binary cross-entropy" }), skill({ topicId: "T1", topicTitle: "Binary cross-entropy" })],
     });
-    expect(p.recommendation).toMatchObject({ action: "learn", title: "Start Binary cross-entropy", reason: "Not studied yet" });
+    expect(p.recommendation).toMatchObject({ action: "learn", title: "Start learning", topicTitle: "Binary cross-entropy", reason: "Not studied yet" });
     expect(p.plan).toHaveLength(1);
     expect(p.nextScheduledCheck).toBeNull();
   });
@@ -61,7 +61,7 @@ describe("study plan", () => {
   it("U08: the most recent unfinished session is resumed rather than duplicated, with phase-specific wording", () => {
     const base = { now: T0, budgetMinutes: 20, skills: [skill({})] };
     const checkpoint = buildStudyPlan({ ...base, activeSessions: [session({})] });
-    expect(checkpoint.recommendation).toMatchObject({ action: "resume", title: "Continue your check", reason: "1 of 2 answers saved", sessionId: "sess" });
+    expect(checkpoint.recommendation).toMatchObject({ action: "resume", title: "Continue your independent check", reason: "1 of 2 answers saved", sessionId: "sess" });
     const pending = buildStudyPlan({ ...base, activeSessions: [session({ phase: "results", answered: 2, pendingAssessments: 1, providerErrors: 1 })] });
     expect(pending.recommendation).toMatchObject({ title: "Your answer is saved", reason: "Assessment needs another attempt" });
     const repair = buildStudyPlan({
@@ -109,7 +109,7 @@ describe("study plan", () => {
       activeSessions: [],
       skills: [skill({ skillId: "S5", primaryTaskType: "calculate", topicTitle: "Binary cross-entropy", evidenceState: "developing", attempted: true, reassessmentNeeded: true, dueAt: T0 + MS_DAY })],
     });
-    expect(gap.recommendation).toMatchObject({ action: "practice", title: "Practise Binary cross-entropy", reason: "Your last calculation needs another step" });
+    expect(gap.recommendation).toMatchObject({ action: "practice", title: "Practise the calculation", topicTitle: "Binary cross-entropy", reason: "Your last calculation needs another step" });
     const repaired = buildStudyPlan({
       now: T0,
       budgetMinutes: 20,
@@ -161,5 +161,33 @@ describe("study plan", () => {
     const empty = buildStudyPlan({ now: T0, budgetMinutes: 20, activeSessions: [], skills: [] });
     expect(empty.recommendation).toBeNull();
     expect(empty.upToDate).toBe(true);
+  });
+});
+
+describe("display copy", () => {
+  it("keeps the topic as the heading and builds short focus/summary text from skill labels", () => {
+    const p = buildStudyPlan({
+      now: T0,
+      budgetMinutes: 20,
+      activeSessions: [],
+      skills: [
+        skill({ topicId: "M", topicTitle: "Model and likelihood", label: "Notation", summary: "Interpret the model notation" }),
+        skill({ topicId: "M", topicTitle: "Model and likelihood", label: "Dataset likelihood", summary: "Write a dataset likelihood" }),
+      ],
+    });
+    expect(p.recommendation).toMatchObject({
+      title: "Start learning",
+      topicTitle: "Model and likelihood",
+      focus: "Notation and dataset likelihood",
+      summary: "Interpret the model notation, then write a dataset likelihood.",
+    });
+    // Acronyms keep their case; skills without labels fall back to the objective.
+    const q = buildStudyPlan({
+      now: T0,
+      budgetMinutes: 20,
+      activeSessions: [],
+      skills: [skill({ topicId: "B", label: "BCE meaning" }), skill({ topicId: "B", label: "Loss calculation" }), skill({ topicId: "B", objective: "Derive it" })],
+    });
+    expect(q.recommendation?.focus).toBe("BCE meaning, loss calculation and derive it");
   });
 });

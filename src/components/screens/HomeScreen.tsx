@@ -32,6 +32,8 @@ interface HomeData {
     topicTitle: string;
     skillIds: string[];
     objectives: string[];
+    noun: string;
+    focus: string;
     dueAt: number;
     dueWhen: string | null;
     dueExact: string | null;

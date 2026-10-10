@@ -12,7 +12,7 @@ test("resume opens the exact checkpoint phase without duplicates; flagging exclu
 
   // U08: the overview offers to resume the exact persisted phase.
   await page.goto("/");
-  await expect(page.getByTestId("recommendation")).toContainText("Continue your check");
+  await expect(page.getByTestId("recommendation")).toContainText("Continue your independent check");
   await expect(page.getByTestId("recommendation")).toContainText("1 of 2 answers saved");
   await page.getByTestId("recommendation-cta").click();
   await expect(page).toHaveURL(sessionUrl);

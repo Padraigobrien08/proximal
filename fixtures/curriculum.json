@@ -23,7 +23,9 @@
               "id": "S1",
               "objective": "Interpret conditional model notation and parameters",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "Notation",
+              "summary": "Interpret the model notation"
             }
           ]
         },
@@ -41,7 +43,9 @@
               "id": "S2",
               "objective": "Construct likelihood under the stated independence assumption",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "Dataset likelihood",
+              "summary": "Write a dataset likelihood"
             }
           ]
         }
@@ -66,7 +70,9 @@
               "id": "S3",
               "objective": "Connect likelihood, log likelihood and negative log likelihood",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "Log objective",
+              "summary": "Connect likelihood to negative log likelihood"
             }
           ]
         }
@@ -91,7 +97,9 @@
               "id": "S4",
               "objective": "Explain what BCE measures and distinguish it from accuracy",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "BCE meaning",
+              "summary": "Explain what BCE penalises"
             }
           ]
         },
@@ -109,7 +117,9 @@
               "id": "S5",
               "objective": "Calculate BCE and use aggregate losses to compare predictions",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "Loss calculation",
+              "summary": "Calculate and compare losses"
             }
           ]
         },
@@ -127,7 +137,9 @@
               "id": "S6",
               "objective": "Derive BCE from the Bernoulli likelihood",
               "required": true,
-              "transferRequired": true
+              "transferRequired": true,
+              "label": "Derivation",
+              "summary": "Derive BCE from the Bernoulli likelihood"
             }
           ]
         }

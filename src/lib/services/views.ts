@@ -4,7 +4,7 @@ import type { SkillReviewState } from "../domain/types";
 import { feedbackView, feedbackVisible, summariseSession } from "./sessions";
 import { EVIDENCE_LABELS, FRESHNESS_LABELS, dueLabel, formatDateTime, freshnessOf, isApplicationTask, relativeWhen } from "../domain/labels";
 import { MINUTES_PER_QUESTION } from "../domain/scheduler";
-import { buildStudyPlan, type PlanSkill } from "../domain/plan";
+import { buildStudyPlan, taskNoun, type PlanSkill } from "../domain/plan";
 import type { QuestionPrivate } from "../domain/types";
 import {
   evidenceAttemptsForSkill,
@@ -85,6 +85,8 @@ export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
         skills.push({
           skillId: s.id,
           objective: s.objective,
+          label: s.label,
+          summary: s.summary,
           primaryTaskType: (questions.find((q) => !q.isTransfer) ?? questions[0])?.taskType ?? null,
           courseId: c.id,
           topicId: t.id,
@@ -118,6 +120,9 @@ export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
         topicTitle: s.topicTitle,
         skillId: s.skillId,
         objective: s.objective,
+        skillLabel: s.label || s.objective,
+        summary: s.summary || s.objective,
+        taskNoun: taskNoun(s.primaryTaskType),
         evidenceState: st.evidenceState,
         label: EVIDENCE_LABELS[st.evidenceState].label,
         freshness,

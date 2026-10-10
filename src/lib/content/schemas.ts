@@ -85,6 +85,10 @@ export const questionBankSchema = z.strictObject({
 export const skillFixtureSchema = z.strictObject({
   id: z.string(),
   objective: z.string().min(1).max(300),
+  /** Short noun phrase for compact plan rows, e.g. "Loss calculation". */
+  label: z.string().min(1).max(60).optional(),
+  /** Short verb phrase for the recommendation, e.g. "Calculate and compare losses". */
+  summary: z.string().min(1).max(120).optional(),
   required: z.boolean(),
   transferRequired: z.boolean(),
 });

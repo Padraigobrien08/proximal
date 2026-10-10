@@ -16,7 +16,7 @@ import {
   Layers,
   Sparkles,
 } from "lucide-react";
-import type { ActionKind } from "@/lib/domain/plan";
+import { lowerFirst, type ActionKind } from "@/lib/domain/plan";
 import type { EvidenceState } from "@/lib/domain/types";
 import { api, ApiError } from "./api";
 import { EvidenceLabel } from "./EvidenceLabel";
@@ -29,6 +29,8 @@ export interface StudyTaskView {
   topicTitle: string;
   skillIds: string[];
   objectives: string[];
+  focus: string;
+  summary: string;
   action: ActionKind;
   title: string;
   reason: string;
@@ -68,6 +70,8 @@ const CTA: Record<ActionKind, string> = {
   resume: "Resume session",
   view: "View topic",
 };
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -144,23 +148,6 @@ export function TimeBudgetControl({ value, onChange }: { value: number; onChange
   );
 }
 
-function leadFor(task: StudyTaskView): string {
-  switch (task.action) {
-    case "resume":
-      return "Pick up where you left off";
-    case "review":
-      return "A scheduled check is due";
-    case "practice":
-      return "Repair a specific gap";
-    case "learn":
-      return "Start with an explanation";
-    case "check":
-      return "Independent check";
-    default:
-      return "Nothing due right now";
-  }
-}
-
 export function RecommendationCard({
   task,
   courseTitle,
@@ -179,20 +166,14 @@ export function RecommendationCard({
       data-testid="recommendation"
       className="mb-6 rounded-xl border border-line bg-card p-5 shadow-[0_3px_15px_rgba(33,59,41,0.06)] sm:p-6"
     >
-      <p className="inline-flex items-center gap-1.5 text-xs font-medium text-teal">
+      <p className="inline-flex items-center gap-1.5 text-[13px] font-medium text-teal">
         <Sparkles size={15} aria-hidden="true" />
-        {ACTION_LABEL[task.action]} · {leadFor(task)}
-      </p>
-      <h3 id="rec-title" className="mb-2 mt-3 text-[23px] font-semibold leading-tight tracking-tight sm:text-[26px]">
         {task.title}
+      </p>
+      <h3 id="rec-title" className="mb-2 mt-2.5 text-[24px] font-semibold leading-tight tracking-tight sm:text-[27px]">
+        {task.topicTitle}
       </h3>
-      {task.objectives.length > 0 && (
-        <ul className="max-w-[560px] space-y-0.5 text-[15px] text-muted">
-          {task.objectives.map((o) => (
-            <li key={o}>{o}</li>
-          ))}
-        </ul>
-      )}
+      {task.summary && <p className="max-w-[560px] text-[15px] text-muted">{task.summary}</p>}
       <div className="my-5 flex flex-wrap items-center gap-4 text-xs text-muted">
         {task.estimatedMinutes > 0 && (
           <span className="inline-flex items-center gap-1.5">
@@ -206,10 +187,7 @@ export function RecommendationCard({
             {plural(task.skillIds.length, "skill")}
           </span>
         )}
-        <span>
-          {task.topicTitle}
-          {courseTitle ? ` · ${courseTitle}` : ""}
-        </span>
+        {courseTitle && <span>{courseTitle}</span>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <span className="text-sm text-muted">
@@ -276,9 +254,7 @@ export function StudyTaskList({
                 {t.topicTitle}
               </p>
               <p className="text-xs text-muted">
-                {t.objectives.join("; ")}
-                {t.objectives.length > 0 ? " · " : ""}
-                {t.reason}
+                {t.focus ? `${t.focus} · ${lowerFirst(t.reason)}` : t.reason}
               </p>
             </div>
             <button
@@ -303,6 +279,9 @@ export interface RecentEvidenceView {
   topicTitle: string;
   skillId: string;
   objective: string;
+  skillLabel: string;
+  summary: string;
+  taskNoun: string;
   evidenceState: EvidenceState;
   freshnessLabel: string | null;
   dueWhen: string | null;
@@ -322,10 +301,12 @@ export function RecentEvidence({ rows }: { rows: RecentEvidenceView[] }) {
             className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0 sm:px-[18px]"
           >
             <div className="min-w-0">
-              <p className="text-sm font-medium">{r.objective}</p>
+              <p className="text-sm">
+                <span className="font-medium">{capitalise(r.taskNoun)}</span>
+                <span className="text-muted"> · {r.topicTitle}</span>
+              </p>
               <p className="text-xs text-muted">
-                {r.topicTitle}
-                {r.freshnessLabel ? ` · ${r.freshnessLabel}` : ""}
+                {r.summary}
                 {r.dueWhen ? ` · next check ${r.dueWhen}` : ""}
               </p>
             </div>
@@ -345,7 +326,7 @@ export function RecentEvidence({ rows }: { rows: RecentEvidenceView[] }) {
 export function UpcomingCheck({
   check,
 }: {
-  check: { topicId: string; topicTitle: string; objectives: string[]; dueWhen: string | null; dueExact: string | null };
+  check: { topicId: string; topicTitle: string; noun: string; focus: string; dueWhen: string | null; dueExact: string | null };
 }) {
   return (
     <section aria-labelledby="upcoming-title" className="mb-8">
@@ -356,11 +337,12 @@ export function UpcomingCheck({
         <div className="flex min-w-0 items-start gap-3">
           <CalendarClock size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-teal" />
           <div className="min-w-0">
-            <p className="text-sm font-medium">
-              {check.topicTitle} · <span className="text-teal">{check.dueWhen}</span>
+            <p className="text-sm">
+              <span className="font-medium">Fresh {check.noun === "topic" ? "" : `${check.noun} `}check</span>
+              <span className="text-muted"> · {check.topicTitle}</span>
             </p>
             <p className="text-xs text-muted">
-              {check.objectives.join("; ")} · {check.dueExact}. A fresh question will be used.
+              Scheduled <span className="font-medium text-teal">{check.dueWhen}</span> ({check.dueExact}) · {check.focus} · a new question will be used
             </p>
           </div>
         </div>

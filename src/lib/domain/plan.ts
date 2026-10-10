@@ -12,8 +12,12 @@ export interface StudyTask {
   topicId: string;
   topicTitle: string;
   skillIds: string[];
-  /** Objectives of the targeted skills, for the plan row. */
+  /** Full objectives of the targeted skills (topic page keeps the detail). */
   objectives: string[];
+  /** Compact noun phrase for plan rows, e.g. "Notation and dataset likelihood". */
+  focus: string;
+  /** One short sentence for the recommendation, e.g. "Explain what BCE penalises, then calculate and compare losses." */
+  summary: string;
   action: ActionKind;
   title: string;
   reason: string;
@@ -25,6 +29,10 @@ export interface StudyTask {
 export interface PlanSkill {
   skillId: string;
   objective: string;
+  /** Short noun phrase; falls back to the objective. */
+  label?: string | null;
+  /** Short verb phrase; falls back to the objective. */
+  summary?: string | null;
   primaryTaskType: TaskType | null;
   courseId: string;
   topicId: string;
@@ -78,6 +86,9 @@ export interface NextCheck {
   topicTitle: string;
   skillIds: string[];
   objectives: string[];
+  /** "calculation", "explanation" ... or "topic" when several task types are due together. */
+  noun: string;
+  focus: string;
   dueAt: number;
 }
 
@@ -106,6 +117,36 @@ export function taskNoun(t: TaskType | null): string {
   }
 }
 
+/** Lower-case the first letter unless it starts an acronym ("BCE meaning" stays). */
+export function lowerFirst(s: string): string {
+  return s.length > 1 && s[1] === s[1].toLowerCase() ? s[0].toLowerCase() + s.slice(1) : s;
+}
+
+function joinPhrases(parts: string[], last: string): string {
+  const [first, ...rest] = parts;
+  if (!first) return "";
+  const tail = rest.map(lowerFirst);
+  if (tail.length === 0) return first;
+  return `${[first, ...tail.slice(0, -1)].join(", ")}${last}${tail[tail.length - 1]}`;
+}
+
+/** "Notation and dataset likelihood" */
+export function focusOf(skills: Pick<PlanSkill, "label" | "objective">[]): string {
+  return joinPhrases(
+    skills.map((s) => s.label || s.objective),
+    " and ",
+  );
+}
+
+/** "Explain what BCE penalises, then calculate and compare losses." */
+export function summaryOf(skills: Pick<PlanSkill, "summary" | "objective">[]): string {
+  const text = joinPhrases(
+    skills.map((s) => s.summary || s.objective),
+    ", then ",
+  );
+  return text ? `${text.replace(/\.$/, "")}.` : "";
+}
+
 /** An unfinished session should be resumed rather than duplicated. */
 export function isUnfinished(s: PlanSession): boolean {
   if (s.mode === "learn") return s.remainingQuestions > 0;
@@ -119,11 +160,11 @@ function resumeTask(s: PlanSession, skills: Map<string, PlanSkill>, mpq: number)
   let reason: string;
   let minutes = mpq;
   if (s.mode === "learn") {
-    title = `Continue learning ${s.topicTitle}`;
+    title = "Continue learning";
     reason = `${s.remainingQuestions} practice question${s.remainingQuestions === 1 ? "" : "s"} left`;
     minutes = s.remainingQuestions * mpq;
   } else if (s.phase === "checkpoint") {
-    title = "Continue your check";
+    title = s.purpose === "review" ? "Continue your review" : "Continue your independent check";
     reason = `${s.answered} of ${s.total} answers saved`;
     minutes = Math.max(1, s.total - s.answered) * mpq;
   } else if (s.phase === "results" && s.providerErrors > 0) {
@@ -133,15 +174,20 @@ function resumeTask(s: PlanSession, skills: Map<string, PlanSkill>, mpq: number)
     title = "Your answer is saved";
     reason = "Assessment in progress";
   } else if (s.phase === "results") {
-    title = "Your check results are ready";
+    title = "Your results are ready";
     reason = "Feedback has not been opened yet";
   } else {
     const first = skills.get(s.unresolvedRepairSkillIds[0]);
     title = `Continue the ${taskNoun(first?.primaryTaskType ?? null)} practice`;
     reason = "Your original answer is saved";
   }
+  const targeted = (s.phase === "repair" ? s.unresolvedRepairSkillIds : s.skillIds)
+    .map((id) => skills.get(id))
+    .filter((x): x is PlanSkill => !!x);
   return {
     id: `resume:${s.sessionId}`,
+    focus: focusOf(targeted),
+    summary: summaryOf(targeted),
     courseId: s.courseId,
     topicId: s.topicId,
     topicTitle: s.topicTitle,
@@ -184,6 +230,8 @@ function taskFor(tier: Tier, group: PlanSkill[], topicAttempted: boolean, now: n
     topicTitle: first.topicTitle,
     skillIds: group.map((g) => g.skillId),
     objectives: group.map((g) => g.objective),
+    focus: focusOf(group),
+    summary: summaryOf(group),
     estimatedMinutes: group.length * mpq,
     sessionId: null,
   };
@@ -194,7 +242,7 @@ function taskFor(tier: Tier, group: PlanSkill[], topicAttempted: boolean, now: n
         ...base,
         id: `review:${first.topicId}:${base.skillIds.join(",")}`,
         action: "review",
-        title: `Check ${first.topicTitle} independently`,
+        title: `Fresh ${noun === "topic" ? "" : `${noun} `}check due`,
         reason: `${capitalise(noun)} needs another check`,
         dueAt: Number.isFinite(minDue) ? minDue : null,
       };
@@ -203,7 +251,7 @@ function taskFor(tier: Tier, group: PlanSkill[], topicAttempted: boolean, now: n
         ...base,
         id: `review:${first.topicId}:${base.skillIds.join(",")}`,
         action: "review",
-        title: `Review ${first.topicTitle}`,
+        title: "Scheduled review due",
         reason: `Scheduled ${noun === "topic" ? "" : `${noun} `}check is due`,
         dueAt: Number.isFinite(minDue) ? minDue : null,
       };
@@ -212,7 +260,7 @@ function taskFor(tier: Tier, group: PlanSkill[], topicAttempted: boolean, now: n
         ...base,
         id: `practice:${first.topicId}:${base.skillIds.join(",")}`,
         action: "practice",
-        title: `Practise ${first.topicTitle}`,
+        title: noun === "topic" ? "Practise the gaps" : `Practise the ${noun}`,
         reason: `Your last ${noun === "topic" ? "answers need" : `${noun} needs`} another step`,
         dueAt: null,
       };
@@ -221,8 +269,8 @@ function taskFor(tier: Tier, group: PlanSkill[], topicAttempted: boolean, now: n
         ...base,
         id: `learn:${first.topicId}:${base.skillIds.join(",")}`,
         action: "learn",
-        title: topicAttempted ? `Continue ${first.topicTitle}` : `Start ${first.topicTitle}`,
-        reason: topicAttempted ? `${group.length === 1 ? "One skill" : `${group.length} skills`} not studied yet` : "Not studied yet",
+        title: topicAttempted ? "Continue learning" : "Start learning",
+        reason: "Not studied yet",
         dueAt: null,
       };
   }
@@ -297,6 +345,8 @@ export function buildStudyPlan(input: PlanInput): StudyPlan {
         id: `${c.id}#${n}`,
         skillIds: c.skillIds.slice(0, n),
         objectives: c.objectives.slice(0, n),
+        focus: focusOf(c.skillIds.slice(0, n).map((id) => skills.get(id)!)),
+        summary: summaryOf(c.skillIds.slice(0, n).map((id) => skills.get(id)!)),
         estimatedMinutes: n * mpq,
       });
       remaining -= n * mpq;
@@ -313,11 +363,14 @@ export function buildStudyPlan(input: PlanInput): StudyPlan {
   if (future.length > 0) {
     const first = future[0];
     const same = future.filter((s) => s.topicId === first.topicId && s.dueAt! - first.dueAt! < 24 * 60 * 60 * 1000);
+    const nouns = [...new Set(same.map((s) => taskNoun(s.primaryTaskType)))];
     nextScheduledCheck = {
       topicId: first.topicId,
       topicTitle: first.topicTitle,
       skillIds: same.map((s) => s.skillId),
       objectives: same.map((s) => s.objective),
+      noun: nouns.length === 1 ? nouns[0] : "topic",
+      focus: focusOf(same),
       dueAt: first.dueAt!,
     };
   }
@@ -335,6 +388,8 @@ export function buildStudyPlan(input: PlanInput): StudyPlan {
       topicTitle: unavailable.topicTitle,
       skillIds: [unavailable.skillId],
       objectives: [unavailable.objective],
+      focus: focusOf([unavailable]),
+      summary: summaryOf([unavailable]),
       action: "view",
       title: "Reviewed questions needed",
       reason: `${unavailable.topicTitle} has no reviewed questions yet; its source material is still available`,
@@ -352,6 +407,8 @@ export function buildStudyPlan(input: PlanInput): StudyPlan {
       topicTitle: nextScheduledCheck.topicTitle,
       skillIds: nextScheduledCheck.skillIds,
       objectives: nextScheduledCheck.objectives,
+      focus: nextScheduledCheck.focus,
+      summary: `A fresh ${nextScheduledCheck.noun === "topic" ? "" : `${nextScheduledCheck.noun} `}check is scheduled.`,
       action: "view",
       title: "Your next check is scheduled",
       reason: "",

@@ -227,6 +227,9 @@ export interface SkillRow {
   id: string;
   unitId: string;
   objective: string;
+  /** Short display copy (optional; falls back to the objective). */
+  label: string | null;
+  summary: string | null;
   required: boolean;
   transferRequired: boolean;
   version: number;
@@ -237,6 +240,8 @@ interface RawSkill {
   id: string;
   unit_id: string;
   objective: string;
+  label: string | null;
+  summary: string | null;
   required: number;
   transfer_required: number;
   version: number;
@@ -246,6 +251,8 @@ const mapSkill = (r: RawSkill): SkillRow => ({
   id: r.id,
   unitId: r.unit_id,
   objective: r.objective,
+  label: r.label,
+  summary: r.summary,
   required: !!r.required,
   transferRequired: !!r.transfer_required,
   version: r.version,
@@ -254,12 +261,22 @@ const mapSkill = (r: RawSkill): SkillRow => ({
 
 export function insertSkill(
   db: DB,
-  s: { id?: string; unitId: string; objective: string; required: boolean; transferRequired: boolean; version?: number; position: number },
+  s: {
+    id?: string;
+    unitId: string;
+    objective: string;
+    label?: string | null;
+    summary?: string | null;
+    required: boolean;
+    transferRequired: boolean;
+    version?: number;
+    position: number;
+  },
 ): string {
   const id = s.id ?? newId();
   db.prepare(
-    "INSERT INTO skills (id, unit_id, objective, required, transfer_required, version, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, s.unitId, s.objective, s.required ? 1 : 0, s.transferRequired ? 1 : 0, s.version ?? 1, s.position);
+    "INSERT INTO skills (id, unit_id, objective, label, summary, required, transfer_required, version, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, s.unitId, s.objective, s.label ?? null, s.summary ?? null, s.required ? 1 : 0, s.transferRequired ? 1 : 0, s.version ?? 1, s.position);
   return id;
 }
 

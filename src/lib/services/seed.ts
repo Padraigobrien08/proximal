@@ -91,6 +91,8 @@ export async function seedDemo(input: SeedInput) {
               id: s.id,
               unitId: u.id,
               objective: s.objective,
+              label: s.label ?? null,
+              summary: s.summary ?? null,
               required: s.required,
               transferRequired: s.transferRequired,
               position: si,
@@ -139,6 +141,20 @@ export async function seedDemo(input: SeedInput) {
           )
           .run(u.explanation, u.workedExample, u.id, u.explanation, u.workedExample);
         report.unitsRefreshed += res.changes;
+      }
+    }
+    // Short display copy for demo skills (not evidence-bearing).
+    for (const t of fixtures.curriculum.topics) {
+      for (const u of t.units) {
+        for (const sk of u.skills) {
+          db.prepare("UPDATE skills SET label = ?, summary = ? WHERE id = ? AND (label IS NOT ? OR summary IS NOT ?)").run(
+            sk.label ?? null,
+            sk.summary ?? null,
+            sk.id,
+            sk.label ?? null,
+            sk.summary ?? null,
+          );
+        }
       }
     }
     for (const q of fixtures.bank.questions) {

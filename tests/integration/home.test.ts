@@ -47,7 +47,7 @@ describe("home view (U01, U05, U12, U14)", () => {
   it("U01: a new workspace shows real counts, one starting action and no fabricated evidence", async () => {
     const { ctx } = await setup();
     const home = getHomeView(ctx, 20);
-    expect(home.recommendation).toMatchObject({ action: "learn", title: "Start Model and likelihood", reason: "Not studied yet" });
+    expect(home.recommendation).toMatchObject({ action: "learn", title: "Start learning", topicTitle: "Model and likelihood", reason: "Not studied yet" });
     expect(home.recentEvidence).toEqual([]);
     expect(home.nextScheduledCheck).toBeNull();
     expect(home.courses[0]).toMatchObject({
@@ -115,7 +115,7 @@ describe("home view (U01, U05, U12, U14)", () => {
     expect(JSON.stringify(topic)).not.toMatch(/briefReason|Demonstrated independently/);
     expect(listCourseSummaries(ctx)[0].independentlyCheckedSkillCount).toBe(0);
     const home = getHomeView(ctx, 20);
-    expect(home.recommendation).toMatchObject({ action: "resume", title: "Continue your check", reason: "1 of 2 answers saved" });
+    expect(home.recommendation).toMatchObject({ action: "resume", title: "Continue your independent check", reason: "1 of 2 answers saved" });
     expect(JSON.stringify(home)).not.toMatch(/Demonstrated independently/);
   });
 

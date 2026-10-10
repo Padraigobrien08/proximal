@@ -5,7 +5,10 @@ test("P0 showcase: independent explanation, calculation gap, supported repair, s
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your study workspace" })).toBeVisible();
   await expect(page.getByTestId("provider-badge")).toContainText("Offline demo · supplied examples only.");
-  await expect(page.getByTestId("recommendation")).toContainText("Start Model and likelihood");
+  await expect(page.getByTestId("recommendation")).toContainText("Start learning");
+  await expect(page.getByTestId("recommendation").getByRole("heading")).toHaveText("Model and likelihood");
+  await expect(page.getByTestId("recommendation")).toContainText("Interpret the model notation, then write a dataset likelihood.");
+  await expect(page.getByTestId("plan-row").first()).toContainText("Notation and dataset likelihood · not studied yet");
   await expect(page.getByTestId("course-demo-course")).toContainText("0 of 6 required skills checked independently");
   await expect(page.getByRole("heading", { name: "Recent evidence" })).toHaveCount(0);
 
@@ -72,17 +75,24 @@ test("P0 showcase: independent explanation, calculation gap, supported repair, s
   // 5. Return to overview: current evidence and a future fresh check, outside today's plan.
   await page.getByTestId("next-action").click();
   await expect(page).toHaveURL("http://127.0.0.1:3100/");
+  await expect(page.getByTestId("recent-S4")).toContainText("Explanation");
   await expect(page.getByTestId("recent-S4")).toContainText("Demonstrated independently");
+  await expect(page.getByTestId("recent-S5")).toContainText("Calculation");
   await expect(page.getByTestId("recent-S5")).toContainText("Completed with support");
+  // Both skills are scheduled 24h out: the explanation after its first independent pass, the calculation after its gap.
+  await expect(page.getByTestId("upcoming-check")).toContainText("Fresh check");
+  await expect(page.getByTestId("upcoming-check")).toContainText("BCE meaning and loss calculation");
   await expect(page.getByTestId("upcoming-check")).toContainText("Binary cross-entropy");
-  await expect(page.getByTestId("upcoming-check")).toContainText("tomorrow");
+  await expect(page.getByTestId("upcoming-check")).toContainText("Scheduled tomorrow at");
   await expect(page.getByTestId("course-demo-course")).toContainText("1 of 6 required skills checked independently");
   // The just-repaired check is not offered again today.
   await expect(page.getByTestId("plan-row").filter({ hasText: "Review" })).toHaveCount(0);
 
   // Persistence across refresh.
   await page.reload();
+  await expect(page.getByTestId("recent-S4")).toContainText("Demonstrated independently");
   await expect(page.getByTestId("recent-S5")).toContainText("Completed with support");
+  await expect(page.getByTestId("upcoming-check")).toContainText("Scheduled tomorrow at");
 
   // Topic page: separate skill evidence, unassessed derivation, help recorded in history.
   await page.getByTestId("recent-S5").getByRole("link", { name: "Open topic" }).click();
