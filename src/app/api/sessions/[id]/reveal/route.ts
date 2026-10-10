@@ -10,6 +10,7 @@ const bodySchema = z.strictObject({
   sessionQuestionId: z.string().optional(),
   hintIndex: z.number().int().min(0).max(5).optional(),
   unitId: z.string().optional(),
+  gapFromAttemptId: z.string().optional(),
 });
 
 export const POST = route({ mutation: true }, async (req: Request, { params }: { params: Promise<{ id: string }> }) => {

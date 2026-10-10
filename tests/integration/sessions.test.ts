@@ -452,4 +452,34 @@ describe("idempotency, privacy and providers", () => {
     await answer(ctx, sessionId, exampleAnswer("S4-A", "partial"));
     expect(getSessionView(ctx, sessionId).current!.offerAlternatives).toBe(true);
   });
+
+  it("live tutor repairs the diagnosed gap with approved source pages, after recording an explanation exposure", async () => {
+    const tutorInputs: { gap: string | null; pages: number[] }[] = [];
+    const { ctx } = await setup({
+      mode: "live",
+      provider: (db) => {
+        const mock = createMockProvider(db);
+        return {
+          mode: "live",
+          model: "test",
+          generateCurriculum: mock.generateCurriculum.bind(mock),
+          assessAnswer: async (i: AssessmentInput) => {
+            const r = await mock.assessAnswer(i);
+            return { output: r.output, meta: { ...r.meta, mode: "live", model: "test" } };
+          },
+          tutor: async (i) => {
+            tutorInputs.push({ gap: i.gap, pages: i.sourcePages.map((p) => p.page) });
+            return { explanation: "Keep the leading minus sign: BCE is $-\\ln p$.", meta: { mode: "live", model: "test", promptVersion: "tutor-v1", usage: null } };
+          },
+        } satisfies LearningProvider;
+      },
+    });
+    const { sessionId } = startSession(ctx, { topicId: BCE, mode: "learn", skillIds: ["S5"] });
+    const r = await answer(ctx, sessionId, exampleAnswer("S5-A", "wrong"));
+    const res = await reveal(ctx, sessionId, { kind: "explanation", unitId: "U5", gapFromAttemptId: r.attemptId });
+    expect(res.content).toMatchObject({ origin: "live_tutor" });
+    expect(tutorInputs[0].gap).toContain("The reported loss has the correct (positive) sign");
+    expect(tutorInputs[0].pages).toEqual([5]);
+    expect(listExposures(ctx.db, sessionId).some((e) => e.kind === "explanation" && e.contentRef.includes(":gap:"))).toBe(true);
+  });
 });

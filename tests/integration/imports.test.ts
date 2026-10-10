@@ -67,6 +67,14 @@ describe("T18: PDF import", () => {
     expect(() => startSession(ctx, { topicId: view.topics[0].id, mode: "review" })).toThrow(/Reviewed assessment questions needed/);
     expect(() => patchDraft(ctx, res.courseId, { units: [{ unitId: view.topics[0].units[0].id, title: "x" }], addUnits: [] })).toThrow(/frozen/);
 
+    // A material change after approval becomes a new unit version with new skill ids (fresh evidence).
+    const before = view.topics[0].units[0];
+    patchDraft(ctx, res.courseId, { revisions: [{ unitId: before.id, objective: "Interpret p(y | x, theta) for a binary classifier" }] });
+    const revised = getCourseView(ctx, res.courseId).topics[0].units.find((u) => u.version === 2)!;
+    expect(revised.objective).toBe("Interpret p(y | x, theta) for a binary classifier");
+    expect(revised.skills[0].id).not.toBe(before.skills[0].id);
+    expect(getCourseView(ctx, res.courseId).topics[0].units.some((u) => u.id === before.id)).toBe(false); // superseded hidden
+
     // Retry of the same bytes reuses the course rather than duplicating it.
     const again = await importPdf(ctx, dir, { name: "lecture.pdf", bytes: readFileSync(SAMPLE_PDF_PATH) });
     expect(again.reused).toBe(true);

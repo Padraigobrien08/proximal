@@ -85,6 +85,8 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     const st = currentSkillState(ctx, s.id);
     const questions = listQuestionsForSkill(ctx.db, s.id);
     const hasApplicationQuestion = questions.some((q) => q.isTransfer);
+    // An "application" skill is one whose initial (non-transfer) questions are calculation/application tasks.
+    const applicationSkill = questions.some((q) => !q.isTransfer && isApplicationTask(q.taskType));
     return {
       id: s.id,
       unitId: s.unitId,
@@ -105,6 +107,7 @@ export function getTopicView(ctx: AppContext, topicId: string) {
       missingApplicationCoverage: s.transferRequired && !st.transferCovered,
       reviewAvailable: questions.some((q) => q.status !== "excluded"),
       hasApplicationQuestion,
+      applicationSkill,
       questionStatuses: [...new Set(questions.map((q) => q.status))],
     };
   });
@@ -186,6 +189,11 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     })),
     skills,
     reviewAvailable: skills.some((s) => s.reviewAvailable),
+    activeSessions: (
+      ctx.db
+        .prepare("SELECT id, mode, phase, created_at AS createdAt FROM sessions WHERE topic_id = ? AND status = 'active' ORDER BY created_at DESC")
+        .all(topic.id) as { id: string; mode: string; phase: string; createdAt: number }[]
+    ),
     evidence,
   };
 }

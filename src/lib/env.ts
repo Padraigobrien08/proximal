@@ -29,5 +29,5 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     PROXIMAL_DATA_DIR: source.PROXIMAL_DATA_DIR || undefined,
     PROXIMAL_TIMEZONE: source.PROXIMAL_TIMEZONE || undefined,
   });
-  return { ...parsed, dataDir: path.resolve(process.cwd(), parsed.PROXIMAL_DATA_DIR) };
+  return { ...parsed, dataDir: path.resolve(/*turbopackIgnore: true*/ process.cwd(), parsed.PROXIMAL_DATA_DIR) };
 }

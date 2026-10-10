@@ -12,7 +12,7 @@ import {
   type ReplayFixture,
 } from "./schemas";
 
-export const FIXTURES_DIR = path.resolve(process.cwd(), "fixtures");
+export const FIXTURES_DIR = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "fixtures");
 export const SAMPLE_PDF_PATH = path.join(FIXTURES_DIR, "sample-lecture.pdf");
 
 function readJson(name: string): unknown {

@@ -397,6 +397,14 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
         : items,
     results,
     explanationsShown: exps.filter((e) => e.kind === "explanation").map((e) => e.contentRef),
+    // Checked fixture explanations already shown (exposure recorded) can be re-displayed on reload.
+    explanations: Object.fromEntries(
+      [...new Set(exps.filter((e) => e.kind === "explanation" && !e.contentRef.includes(":gap:")).map((e) => e.contentRef.slice("explanation:".length)))]
+        .map((unitId) => getUnit(ctx.db, unitId))
+        .filter((u): u is NonNullable<typeof u> => !!u && !!u.explanation)
+        .map((u) => [u.id, { unitTitle: u.title, explanation: u.explanation!, workedExample: u.workedExample }]),
+    ),
+    units: listSkillsForTopic(ctx.db, topic.id).map((s) => ({ unitId: s.unit.id, title: s.unit.title, objective: s.unit.objective })),
     noQuestionsAvailable: sqs.length === 0,
   };
 }
@@ -560,6 +568,8 @@ export interface RevealInput {
   sessionQuestionId?: string;
   hintIndex?: number;
   unitId?: string;
+  /** Learning/repair only: ask the live tutor to repair the gap diagnosed in this assessed attempt. */
+  gapFromAttemptId?: string;
 }
 
 export async function reveal(ctx: AppContext, sessionId: string, input: RevealInput) {
@@ -585,11 +595,26 @@ export async function reveal(ctx: AppContext, sessionId: string, input: RevealIn
         sessionId,
         kind: "explanation",
         affectedSkillIds: unitSkills,
-        contentRef: `explanation:${unit.id}`,
+        contentRef: input.gapFromAttemptId ? `explanation:${unit.id}:gap:${input.gapFromAttemptId}` : `explanation:${unit.id}`,
         recordedAt: ctx.clock.now(),
       }),
     )();
-    if (unit.explanation) {
+    let gap: string | null = null;
+    if (input.gapFromAttemptId) {
+      const attempt = getAttemptByIdSafe(ctx, input.gapFromAttemptId);
+      const asm = getAssessmentForAttempt(ctx.db, attempt.id);
+      const sq = getSessionQuestion(ctx.db, attempt.sessionQuestionId)!;
+      if (attempt.sessionId !== sessionId || !asm || !feedbackVisible(ctx, sessionId, attempt.id)) {
+        throw new AppError("stale_phase", "Gap explanations are available after feedback for that answer.");
+      }
+      const missing = sq.frozen.rubric.criteria
+        .filter((c) => asm.criteria.find((j) => j.criterionId === c.id)?.status !== "met")
+        .map((c) => `- ${c.description}`);
+      gap = [`Question: ${sq.frozen.prompt}`, "Criteria not yet met:", ...missing, asm.possibleMisconception ? `Possible misconception: ${asm.possibleMisconception}` : ""]
+        .filter(Boolean)
+        .join("\n");
+    }
+    if (unit.explanation && !gap) {
       return {
         exposureId: exposure.id,
         kind: input.kind,
@@ -598,7 +623,7 @@ export async function reveal(ctx: AppContext, sessionId: string, input: RevealIn
     }
     try {
       const pages = unitSourcePages(ctx, topic.courseId, unit.sourceRefs.map((r) => r.page));
-      const res = await ctx.provider.tutor({ objective: unit.objective, sourcePages: pages, gap: null, request: "explanation" });
+      const res = await ctx.provider.tutor({ objective: unit.objective, sourcePages: pages, gap, request: gap ? "worked_example" : "explanation" });
       return {
         exposureId: exposure.id,
         kind: input.kind,

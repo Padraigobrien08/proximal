@@ -5,6 +5,6 @@ import path from "node:path";
 export function readEnvSafe() {
   return {
     timezone: process.env.PROXIMAL_TIMEZONE || "Europe/London",
-    dataDir: path.resolve(process.cwd(), process.env.PROXIMAL_DATA_DIR || "./data"),
+    dataDir: path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.PROXIMAL_DATA_DIR || "./data"),
   };
 }

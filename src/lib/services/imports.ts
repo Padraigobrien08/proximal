@@ -222,6 +222,17 @@ export const draftPatchSchema = z.strictObject({
     )
     .max(50)
     .default([]),
+  /** Approved imported courses only: a material change creates a new unit version with new skill ids and fresh evidence. */
+  revisions: z
+    .array(
+      z.strictObject({
+        unitId: z.string(),
+        title: z.string().trim().min(1).max(200).optional(),
+        objective: z.string().trim().min(1).max(300),
+      }),
+    )
+    .max(20)
+    .default([]),
   addUnits: z
     .array(
       z.strictObject({
@@ -235,22 +246,29 @@ export const draftPatchSchema = z.strictObject({
     .default([]),
 });
 export type DraftPatch = z.infer<typeof draftPatchSchema>;
+export type DraftPatchInput = z.input<typeof draftPatchSchema>;
 
 function coursePageCount(ctx: AppContext, courseId: string): number {
   const counts = ctx.db.prepare("SELECT MAX(page_count) AS n FROM sources WHERE course_id = ?").get(courseId) as { n: number | null };
   return counts.n ?? 0;
 }
 
-export function patchDraft(ctx: AppContext, courseId: string, patch: DraftPatch) {
+export function patchDraft(ctx: AppContext, courseId: string, input: DraftPatchInput) {
+  const patch = draftPatchSchema.parse(input);
   const course = getCourse(ctx.db, courseId);
   if (!course) throw notFound("Course");
   if (course.isDemo) throw new AppError("frozen", "The demo course cannot be edited.");
   if (course.status !== "draft") {
-    throw new AppError(
-      "frozen",
-      "Approved objectives are frozen. In this MVP a material change would be made as a new unit version with fresh evidence; draft editing is only available before approval.",
-    );
+    if (patch.units.length > 0 || patch.addUnits.length > 0 || patch.courseTitle) {
+      throw new AppError(
+        "frozen",
+        "Approved objectives are frozen. To change one, revise it: the revision becomes a new unit version with fresh evidence.",
+      );
+    }
+    reviseUnits(ctx, courseId, patch.revisions);
+    return;
   }
+  if (patch.revisions.length > 0) throw new AppError("validation", "Revisions apply to approved courses; edit the draft directly.");
   const pageCount = coursePageCount(ctx, courseId);
   ctx.db.transaction(() => {
     if (patch.courseTitle) ctx.db.prepare("UPDATE courses SET title = ? WHERE id = ?").run(patch.courseTitle, courseId);
@@ -292,6 +310,44 @@ export function patchDraft(ctx: AppContext, courseId: string, patch: DraftPatch)
     // Remove topics left empty by deletions.
     for (const t of listTopics(ctx.db, courseId)) {
       if (listUnits(ctx.db, t.id, true).length === 0) ctx.db.prepare("DELETE FROM topics WHERE id = ?").run(t.id);
+    }
+  })();
+}
+
+/**
+ * MVP versioning: a revised objective duplicates the unit and its skills under new ids (version + 1) and marks the old
+ * unit superseded. Old evidence stays attached to the old skill ids; the new version starts unassessed.
+ */
+function reviseUnits(ctx: AppContext, courseId: string, revisions: DraftPatch["revisions"]) {
+  const topicIds = new Set(listTopics(ctx.db, courseId).map((t) => t.id));
+  ctx.db.transaction(() => {
+    for (const r of revisions) {
+      const unit = getUnit(ctx.db, r.unitId);
+      if (!unit || !topicIds.has(unit.topicId) || unit.approvalStatus !== "approved") throw notFound(`Approved unit ${r.unitId}`);
+      const newUnitId = insertUnit(ctx.db, {
+        topicId: unit.topicId,
+        title: r.title ?? unit.title,
+        objective: r.objective,
+        version: unit.version + 1,
+        approvalStatus: "approved",
+        sourceRefs: unit.sourceRefs,
+        explanation: null,
+        workedExample: null,
+        position: unit.position,
+        supersedesUnitId: unit.id,
+      });
+      const skills = listSkillsForUnit(ctx.db, unit.id);
+      skills.forEach((s, i) =>
+        insertSkill(ctx.db, {
+          unitId: newUnitId,
+          objective: skills.length === 1 ? r.objective : s.objective,
+          required: s.required,
+          transferRequired: s.transferRequired,
+          version: s.version + 1,
+          position: i,
+        }),
+      );
+      updateUnit(ctx.db, unit.id, { approvalStatus: "superseded" });
     }
   })();
 }

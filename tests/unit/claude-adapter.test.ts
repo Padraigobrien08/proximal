@@ -90,8 +90,8 @@ describe("Claude adapter", () => {
 
 describe("environment", () => {
   it("live mode requires both Anthropic variables and never picks a model", () => {
-    expect(() => readEnv({ LLM_MODE: "live", ANTHROPIC_API_KEY: "k" } as NodeJS.ProcessEnv)).toThrow(/ANTHROPIC_MODEL/);
-    expect(readEnv({} as NodeJS.ProcessEnv).LLM_MODE).toBe("mock");
+    expect(() => readEnv({ LLM_MODE: "live", ANTHROPIC_API_KEY: "k" } as unknown as NodeJS.ProcessEnv)).toThrow(/ANTHROPIC_MODEL/);
+    expect(readEnv({} as unknown as NodeJS.ProcessEnv).LLM_MODE).toBe("mock");
   });
 });
 
