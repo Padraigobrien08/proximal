@@ -1,0 +1,110 @@
+<div id="proximal-home-redesign">
+  <style>
+    #proximal-home-redesign{color-scheme:light dark;--ph-bg:light-dark(#f5f7f6,#161c19);--ph-paper:light-dark(#ffffff,#1e2722);--ph-ink:light-dark(#192b23,#ecf2ee);--ph-muted:light-dark(#62726a,#a3b2a9);--ph-line:light-dark(#e1e7e3,#354139);--ph-green:light-dark(#246a4e,#a5dfbc);--ph-on-green:light-dark(#ffffff,#173c28);--ph-wash:light-dark(#edf4ef,#26392d);--ph-side:light-dark(#182e24,#111e17);--ph-side-ink:light-dark(#f1f6f2,#edf5ef);--ph-side-muted:light-dark(#a9bfb0,#a6bcad);--ph-side-active:light-dark(#2c4638,#2a4133);--ph-amber:light-dark(#825b25,#e3c18d);--ph-amber-bg:light-dark(#faf4e8,#342d23);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:var(--ph-ink)}
+    #proximal-home-redesign *{box-sizing:border-box}
+    #proximal-home-redesign button,#proximal-home-redesign input{font:inherit}
+    #proximal-home-redesign button{transition:background .15s ease,color .15s ease}
+    #proximal-home-redesign .ph-app{display:grid;grid-template-columns:196px minmax(0,1fr);background:var(--ph-bg);border-radius:14px;overflow:hidden;border:1px solid var(--ph-line)}
+    #proximal-home-redesign .ph-sidebar{background:var(--ph-side);color:var(--ph-side-ink);padding:26px 17px;display:flex;flex-direction:column;gap:30px}
+    #proximal-home-redesign .ph-brand{font-size:24px;font-weight:600;letter-spacing:-1px;padding:0 9px;display:flex;align-items:center;gap:10px}
+    #proximal-home-redesign .ph-mark{width:26px;height:26px;background:var(--ph-side-ink);color:var(--ph-side);border-radius:8px;display:grid;place-items:center;font-size:21px;font-weight:500}
+    #proximal-home-redesign .ph-nav{display:flex;flex-direction:column;gap:6px}
+    #proximal-home-redesign .ph-nav-btn{display:flex;align-items:center;gap:10px;text-align:left;border:0;border-radius:8px;padding:11px 12px;background:none;color:var(--ph-side-muted)}
+    #proximal-home-redesign .ph-nav-btn[aria-pressed="true"]{background:var(--ph-side-active);color:var(--ph-side-ink)}
+    #proximal-home-redesign .ph-caption{font-size:11px;font-weight:500;letter-spacing:1.1px;text-transform:uppercase;color:var(--ph-muted)}
+    #proximal-home-redesign .ph-sidebar .ph-caption{color:var(--ph-side-muted);padding:0 10px;margin-bottom:10px}
+    #proximal-home-redesign .ph-side-course{padding:0 10px;font-size:13px;color:var(--ph-side-ink)}
+    #proximal-home-redesign .ph-side-footer{margin-top:auto;padding:26px 10px 0;border-top:1px solid var(--ph-side-active);color:var(--ph-side-muted);font-size:12px}
+    #proximal-home-redesign .ph-side-footer strong{font-weight:500;color:var(--ph-side-ink);display:block;margin-bottom:3px}
+    #proximal-home-redesign .ph-main{min-width:0;padding:0 34px 30px}
+    #proximal-home-redesign .ph-topbar{min-height:73px;border-bottom:1px solid var(--ph-line);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 0;margin-bottom:29px}
+    #proximal-home-redesign .ph-breadcrumb{font-size:12px;color:var(--ph-muted);display:flex;align-items:center;gap:9px}
+    #proximal-home-redesign .ph-breadcrumb b{font-weight:500;color:var(--ph-ink)}
+    #proximal-home-redesign .ph-button{border:1px solid var(--ph-line);border-radius:7px;padding:9px 13px;background:var(--ph-paper);color:var(--ph-ink);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+    #proximal-home-redesign .ph-primary{background:var(--ph-green);color:var(--ph-on-green);border-color:var(--ph-green)}
+    #proximal-home-redesign .ph-text-button{border:0;background:transparent;color:var(--ph-green);padding:7px 0;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+    #proximal-home-redesign h1{font-size:30px;line-height:1.2;letter-spacing:-1px;font-weight:600;margin:0 0 8px;color:var(--ph-ink)}
+    #proximal-home-redesign h2{font-size:17px;line-height:1.3;letter-spacing:-.35px;font-weight:600;margin:0;color:var(--ph-ink)}
+    #proximal-home-redesign h3{font-size:25px;line-height:1.25;letter-spacing:-.65px;font-weight:600;margin:12px 0 9px;color:var(--ph-ink)}
+    #proximal-home-redesign p{margin:0}
+    #proximal-home-redesign .ph-subtitle{color:var(--ph-muted);margin-bottom:27px;font-size:14px}
+    #proximal-home-redesign .ph-section-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px;flex-wrap:wrap}
+    #proximal-home-redesign .ph-duration{display:flex;gap:3px;background:var(--ph-paper);padding:3px;border:1px solid var(--ph-line);border-radius:8px}
+    #proximal-home-redesign .ph-duration button{background:transparent;color:var(--ph-muted);border:0;padding:6px 10px;border-radius:5px;font-size:12px}
+    #proximal-home-redesign .ph-duration button[aria-pressed="true"]{background:var(--ph-wash);color:var(--ph-green);font-weight:500}
+    #proximal-home-redesign .ph-next{background:var(--ph-paper);border:1px solid var(--ph-line);border-radius:12px;padding:25px 26px;margin-bottom:24px;box-shadow:0 3px 15px light-dark(#213b2910,#00000015)}
+    #proximal-home-redesign .ph-recommendation{display:inline-flex;align-items:center;gap:7px;color:var(--ph-green);font-size:12px;font-weight:500}
+    #proximal-home-redesign .ph-description{color:var(--ph-muted);max-width:470px}
+    #proximal-home-redesign .ph-meta{display:flex;align-items:center;gap:15px;flex-wrap:wrap;margin:17px 0 21px;color:var(--ph-muted);font-size:12px}
+    #proximal-home-redesign .ph-meta span{display:inline-flex;align-items:center;gap:6px}
+    #proximal-home-redesign .ph-next-bottom{border-top:1px solid var(--ph-line);padding-top:18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    #proximal-home-redesign .ph-next-reason{font-size:12px;color:var(--ph-muted)}
+    #proximal-home-redesign .ph-plan{margin-bottom:25px}
+    #proximal-home-redesign .ph-plan-list{border:1px solid var(--ph-line);border-radius:10px;background:var(--ph-paper);overflow:hidden}
+    #proximal-home-redesign .ph-plan-row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--ph-line)}
+    #proximal-home-redesign .ph-plan-row:last-child{border-bottom:0}
+    #proximal-home-redesign .ph-sequence{width:26px;height:26px;background:var(--ph-bg);color:var(--ph-muted);border-radius:7px;display:grid;place-items:center;font-size:12px}
+    #proximal-home-redesign .ph-plan-title{font-weight:500;margin-bottom:3px}
+    #proximal-home-redesign .ph-small{font-size:12px;color:var(--ph-muted)}
+    #proximal-home-redesign .ph-row-action{border:0;background:none;color:var(--ph-muted);display:flex;align-items:center;gap:8px;padding:9px 0 9px 9px;font-size:12px}
+    #proximal-home-redesign .ph-course{background:var(--ph-paper);border:1px solid var(--ph-line);border-radius:10px;padding:20px;display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:15px;align-items:center}
+    #proximal-home-redesign .ph-course-icon{width:42px;height:46px;border-radius:8px;background:var(--ph-wash);color:var(--ph-green);display:grid;place-items:center}
+    #proximal-home-redesign .ph-course-name{font-size:15px;font-weight:600;margin-bottom:4px}
+    #proximal-home-redesign .ph-evidence{padding-top:14px;margin-top:15px;border-top:1px solid var(--ph-line);font-size:12px;color:var(--ph-muted);grid-column:2 / -1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #proximal-home-redesign .ph-pill{padding:3px 7px;border-radius:5px;background:var(--ph-bg);color:var(--ph-muted);font-size:11px;white-space:nowrap}
+    #proximal-home-redesign .ph-demo-note{margin-top:19px;color:var(--ph-muted);font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    #proximal-home-redesign .ph-demo-note button{font-size:12px;padding:0;border:0;background:none;color:var(--ph-green);text-decoration:underline;text-underline-offset:3px}
+    #proximal-home-redesign .ph-demo-detail{margin-top:10px;background:var(--ph-amber-bg);color:var(--ph-amber);padding:12px 15px;border-radius:7px;font-size:12px}
+    #proximal-home-redesign .ph-topic-panel{background:var(--ph-paper);border:1px solid var(--ph-line);border-radius:12px;padding:25px;margin-top:18px}
+    #proximal-home-redesign .ph-objective{padding:15px 0;border-bottom:1px solid var(--ph-line);display:flex;justify-content:space-between;gap:15px;align-items:center}
+    #proximal-home-redesign .ph-objective:last-child{border-bottom:0}
+    #proximal-home-redesign .ph-upload{margin-top:18px;background:var(--ph-paper);border:1px solid var(--ph-line);border-radius:12px;padding:26px}
+    #proximal-home-redesign .ph-upload label{display:block;margin:20px 0 8px;font-weight:500}
+    #proximal-home-redesign .ph-upload input{display:block;max-width:100%;color:var(--ph-ink);margin-bottom:12px}
+    #proximal-home-redesign [hidden]{display:none!important}
+    @media(max-width:820px){#proximal-home-redesign .ph-app{grid-template-columns:162px minmax(0,1fr)}#proximal-home-redesign .ph-main{padding:0 22px 26px}#proximal-home-redesign .ph-sidebar{padding:25px 11px}#proximal-home-redesign .ph-brand{font-size:21px;gap:8px}#proximal-home-redesign .ph-next{padding:22px}}
+    @media(max-width:620px){#proximal-home-redesign .ph-app{display:block}#proximal-home-redesign .ph-sidebar{padding:15px 20px;flex-direction:row;align-items:center;justify-content:space-between;gap:10px}#proximal-home-redesign .ph-nav{flex-direction:row;gap:2px}#proximal-home-redesign .ph-nav-btn{padding:8px;font-size:12px}#proximal-home-redesign .ph-sidebar .ph-course-group,#proximal-home-redesign .ph-side-footer{display:none}#proximal-home-redesign .ph-nav-btn i{display:none}#proximal-home-redesign .ph-main{padding:0 20px 25px}#proximal-home-redesign .ph-topbar{margin-bottom:24px;min-height:65px}#proximal-home-redesign h1{font-size:27px}#proximal-home-redesign h3{font-size:23px}#proximal-home-redesign .ph-course{grid-template-columns:36px minmax(0,1fr);gap:12px}#proximal-home-redesign .ph-course>.ph-text-button{grid-column:2;justify-self:start}#proximal-home-redesign .ph-evidence{grid-column:1/-1}}
+    @media(max-width:380px){#proximal-home-redesign .ph-brand{font-size:19px;padding:0;gap:7px}#proximal-home-redesign .ph-main{padding:0 15px 24px}#proximal-home-redesign .ph-nav-btn{font-size:11px;padding:8px 6px}#proximal-home-redesign .ph-next{padding:19px}#proximal-home-redesign .ph-plan-row{padding:14px 13px;gap:8px;grid-template-columns:24px minmax(0,1fr) auto}#proximal-home-redesign .ph-row-action{gap:3px}#proximal-home-redesign .ph-objective{flex-wrap:wrap}#proximal-home-redesign button{min-height:44px}}
+    @media(prefers-reduced-motion:reduce){#proximal-home-redesign button{transition:none}}
+  </style>
+  <div class="ph-app">
+    <aside class="ph-sidebar" aria-label="Workspace navigation">
+      <div class="ph-brand"><span class="ph-mark" aria-hidden="true">p</span>Proximal</div>
+      <nav class="ph-nav"><button class="ph-nav-btn cursor-interaction" type="button" aria-pressed="true" id="ph-nav-home"><i data-lucide="layout-dashboard" aria-hidden="true"></i>Overview</button><button class="ph-nav-btn cursor-interaction" type="button" aria-pressed="false" id="ph-nav-courses"><i data-lucide="book-open" aria-hidden="true"></i>Courses</button></nav>
+      <div class="ph-course-group"><div class="ph-caption">Your courses</div><div class="ph-side-course">AI classification demo</div></div>
+      <div class="ph-side-footer"><strong>Personal workspace</strong>Offline demo · example content</div>
+    </aside>
+    <main class="ph-main">
+      <header class="ph-topbar"><div class="ph-breadcrumb">Workspace <span aria-hidden="true">/</span><b id="ph-location">Overview</b></div><button class="ph-button cursor-interaction" type="button" id="ph-import"><i data-lucide="plus" aria-hidden="true"></i>Import lecture</button></header>
+      <section id="ph-home">
+        <h1>Your study workspace</h1><p class="ph-subtitle">A clear starting point for your next session.</p>
+        <div class="ph-section-top"><h2>Recommended next</h2><div class="ph-duration" role="group" aria-label="Study time"><button type="button" class="cursor-interaction" aria-pressed="false" data-minutes="10">10 min</button><button type="button" class="cursor-interaction" aria-pressed="false" data-minutes="20">20 min</button><button type="button" class="cursor-interaction" aria-pressed="true" data-minutes="30">30 min</button></div></div>
+        <article class="ph-next"><div class="ph-recommendation"><i data-lucide="sparkles" aria-hidden="true"></i>Start with the foundations</div><h3>Model and likelihood</h3><p class="ph-description">Understand what the model’s probabilities mean and how they combine across a dataset.</p><div class="ph-meta"><span><i data-lucide="clock-3" aria-hidden="true"></i>About 10 minutes</span><span><i data-lucide="layers" aria-hidden="true"></i>2 skills</span><span>AI classification demo</span></div><div class="ph-next-bottom"><span class="ph-next-reason">Not studied yet · first topic in your course</span><button type="button" class="ph-button ph-primary cursor-interaction" id="ph-start">Open topic <i data-lucide="arrow-right" aria-hidden="true"></i></button></div></article>
+        <section class="ph-plan" aria-labelledby="ph-plan-title"><div class="ph-section-top"><h2 id="ph-plan-title">Your session plan</h2><span class="ph-small" id="ph-plan-total" aria-live="polite">3 topics · about 30 minutes</span></div><div class="ph-plan-list">
+          <div class="ph-plan-row" data-plan-minutes="10"><span class="ph-sequence">1</span><div><div class="ph-plan-title">Model and likelihood</div><div class="ph-small">Notation and dataset likelihood · not started</div></div><button type="button" class="ph-row-action cursor-interaction" data-topic="model"><span>10 min</span><i data-lucide="chevron-right" aria-hidden="true"></i></button></div>
+          <div class="ph-plan-row" data-plan-minutes="5"><span class="ph-sequence">2</span><div><div class="ph-plan-title">Optimisation objective</div><div class="ph-small">From likelihood to loss · not started</div></div><button type="button" class="ph-row-action cursor-interaction" data-topic="optimisation"><span>5 min</span><i data-lucide="chevron-right" aria-hidden="true"></i></button></div>
+          <div class="ph-plan-row" data-plan-minutes="15"><span class="ph-sequence">3</span><div><div class="ph-plan-title">Binary cross-entropy</div><div class="ph-small">Explain, calculate and derive · not started</div></div><button type="button" class="ph-row-action cursor-interaction" data-topic="bce"><span>15 min</span><i data-lucide="chevron-right" aria-hidden="true"></i></button></div>
+        </div></section>
+      </section>
+      <section id="ph-course-section"><div class="ph-section-top"><h2>Your courses</h2><span class="ph-small">1 course</span></div><article class="ph-course"><div class="ph-course-icon"><i data-lucide="book-open" aria-hidden="true"></i></div><div><div class="ph-course-name">AI classification demo</div><p class="ph-small">3 topics · 6 skills · authored sample lecture</p></div><button class="ph-text-button cursor-interaction" type="button" id="ph-open-course">Open course <i data-lucide="arrow-up-right" aria-hidden="true"></i></button><div class="ph-evidence"><i data-lucide="circle-dashed" aria-hidden="true"></i>0 of 6 skills checked independently<span class="ph-pill">Demo content</span></div></article></section>
+      <section id="ph-topic" hidden><button class="ph-text-button cursor-interaction" type="button" id="ph-back-topic"><i data-lucide="arrow-left" aria-hidden="true"></i>Back to overview</button><h1 id="ph-topic-title">Model and likelihood</h1><p class="ph-small">AI classification demo</p><div class="ph-topic-panel"><h2>Learning objectives</h2><div id="ph-objectives"></div><div class="ph-demo-detail">This is a design preview. Topic selection changes locally; no assessment is running.</div></div></section>
+      <section id="ph-upload" hidden><button class="ph-text-button cursor-interaction" type="button" id="ph-back-upload"><i data-lucide="arrow-left" aria-hidden="true"></i>Back to overview</button><h1>Import a lecture</h1><p class="ph-small">Add a lecture PDF to organise its learning objectives.</p><div class="ph-upload"><h2>Choose your material</h2><label for="ph-file">Lecture PDF</label><input id="ph-file" type="file" accept="application/pdf"><p class="ph-small" id="ph-file-note" aria-live="polite">Design preview · files stay on your device and are not processed.</p></div></section>
+      <div class="ph-demo-note"><i data-lucide="info" aria-hidden="true"></i><span>Offline demo · example answers only.</span><button class="cursor-interaction" type="button" id="ph-demo-details" aria-expanded="false" aria-controls="ph-demo-detail">Details</button></div><div class="ph-demo-detail" id="ph-demo-detail" hidden>Only the supplied example answers can be assessed in offline mode. Other answers are marked uncertain; AI grading is not active.</div>
+    </main>
+  </div>
+  <script>
+    (function(){
+      const root=document.getElementById('proximal-home-redesign');
+      const el=id=>root.querySelector('#'+id);
+      const data={model:{title:'Model and likelihood',skills:['Interpret conditional model notation and parameters','Construct likelihood under the stated independence assumption']},optimisation:{title:'Optimisation objective',skills:['Connect likelihood, log likelihood and negative log likelihood']},bce:{title:'Binary cross-entropy',skills:['Explain what BCE measures and distinguish it from accuracy','Calculate BCE and use aggregate losses to compare predictions','Derive BCE from the Bernoulli likelihood']}};
+      const show=view=>{el('ph-home').hidden=view!=='home';el('ph-course-section').hidden=!['home','courses'].includes(view);el('ph-topic').hidden=view!=='topic';el('ph-upload').hidden=view!=='upload';el('ph-nav-home').setAttribute('aria-pressed',String(view==='home'));el('ph-nav-courses').setAttribute('aria-pressed',String(view==='courses'));el('ph-location').textContent={home:'Overview',courses:'Courses',topic:'Topic',upload:'Import lecture'}[view];};
+      const openTopic=id=>{const topic=data[id];el('ph-topic-title').textContent=topic.title;const container=el('ph-objectives');container.replaceChildren();topic.skills.forEach(skill=>{const row=document.createElement('div');row.className='ph-objective';const label=document.createElement('span');label.textContent=skill;const badge=document.createElement('span');badge.className='ph-pill';badge.textContent='Not checked yet';row.append(label,badge);container.append(row);});show('topic');};
+      el('ph-start').addEventListener('click',()=>openTopic('model'));
+      root.querySelectorAll('[data-topic]').forEach(button=>button.addEventListener('click',()=>openTopic(button.dataset.topic)));
+      el('ph-nav-home').addEventListener('click',()=>show('home'));el('ph-nav-courses').addEventListener('click',()=>show('courses'));el('ph-open-course').addEventListener('click',()=>openTopic('model'));el('ph-import').addEventListener('click',()=>show('upload'));el('ph-back-topic').addEventListener('click',()=>show('home'));el('ph-back-upload').addEventListener('click',()=>show('home'));
+      root.querySelectorAll('[data-minutes]').forEach(button=>button.addEventListener('click',()=>{const budget=Number(button.dataset.minutes);root.querySelectorAll('[data-minutes]').forEach(other=>other.setAttribute('aria-pressed',String(other===button)));let total=0,count=0;root.querySelectorAll('[data-plan-minutes]').forEach(row=>{const minutes=Number(row.dataset.planMinutes);const included=total+minutes<=budget;row.hidden=!included;if(included){total+=minutes;count++;}});el('ph-plan-total').textContent=count+' topic'+(count===1?'':'s')+' · about '+total+' minutes';}));
+      el('ph-demo-details').addEventListener('click',()=>{const visible=el('ph-demo-detail').hidden;el('ph-demo-detail').hidden=!visible;el('ph-demo-details').setAttribute('aria-expanded',String(visible));});
+      el('ph-file').addEventListener('change',()=>{const file=el('ph-file').files[0];el('ph-file-note').textContent=file?'Selected: '+file.name+' · preview only; no upload or processing.':'Design preview · files stay on your device and are not processed.';});
+    })();
+  </script>
+</div>

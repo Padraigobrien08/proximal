@@ -2,9 +2,11 @@ import { expect, test } from "@playwright/test";
 
 test("mock showcase: independent definition pass, application failure, supported correction, scheduled review, persistence", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("provider-badge")).toContainText("Offline demo mode");
-  await page.getByRole("link", { name: "Binary cross-entropy" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binary cross-entropy" })).toBeVisible();
+  await expect(page.getByTestId("provider-badge")).toContainText("Offline demo");
+  await expect(page.getByRole("heading", { name: "Recommended next" })).toBeVisible();
+  // Session plan rows link to real topics.
+  await page.getByRole("link", { name: /^Open Binary cross-entropy/ }).click();
+  await expect(page.getByRole("heading", { name: "Binary cross-entropy", exact: true })).toBeVisible();
 
   await page.getByTestId("start-review").click();
   await expect(page.getByRole("heading", { name: "Independent review checkpoint" })).toBeVisible();

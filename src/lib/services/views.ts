@@ -55,8 +55,11 @@ export function getHomeView(ctx: AppContext, budgetMinutes: number) {
       }
     }
   }
+  const courseOfTopic = new Map<string, { id: string; title: string }>();
+  for (const c of courses) for (const t of listTopics(ctx.db, c.id)) courseOfTopic.set(t.id, { id: c.id, title: c.title });
   const blocks = buildQueue(queueInputs, now, budgetMinutes).map((b) => ({
     ...b,
+    course: courseOfTopic.get(b.topicId) ?? null,
     items: b.items.map((i) => ({ ...i, dueLabel: i.dueAt !== null ? dueLabel(i.dueAt, now, ctx.timezone) : null })),
   }));
   return {
@@ -70,7 +73,24 @@ export function getHomeView(ctx: AppContext, budgetMinutes: number) {
       isDemo: c.isDemo,
       status: c.status,
       topics: listTopics(ctx.db, c.id).map((t) => ({ id: t.id, title: t.title })),
+      ...courseSummary(ctx, c.id),
     })),
+  };
+}
+
+/** Counts for the course card: active skills and how many have independent evidence in their current epoch. */
+function courseSummary(ctx: AppContext, courseId: string) {
+  const skills = listTopics(ctx.db, courseId).flatMap((t) => listSkillsForTopic(ctx.db, t.id));
+  const independent = skills.filter((s) => {
+    const state = currentSkillState(ctx, s.id).evidenceState;
+    return state === "demonstrated_once" || state === "retention_demonstrated";
+  }).length;
+  const source = listSourcesForCourse(ctx.db, courseId)[0];
+  return {
+    topicCount: listTopics(ctx.db, courseId).length,
+    skillCount: skills.length,
+    independentCount: independent,
+    sourceLabel: source ? (source.label ?? source.originalName) : null,
   };
 }
 
