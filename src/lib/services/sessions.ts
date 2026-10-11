@@ -40,6 +40,7 @@ import { ProviderError } from "../llm/types";
 import { assessAttempt, type AssessResult } from "./assessments";
 import type { AppContext } from "./context";
 import { AppError, notFound } from "./errors";
+import { recentChatHelp } from "./chat";
 import { currentSkillState } from "./evidence";
 
 export const MAX_CHECKPOINT_QUESTIONS = 3;
@@ -395,6 +396,8 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
       attempts: views,
       answered: attempts.some((a) => a.phase === "original"),
       offerAlternatives: !anyPass && assessedNonPass >= 2,
+      /** The learner asked the lecture chat about this skill recently: a first answer now counts as practice. */
+      recentChatHelp: recentChatHelp(ctx, [sq.skillId], now).size > 0,
     };
   });
 
@@ -507,7 +510,12 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
         .filter((u): u is NonNullable<typeof u> => !!u && !!u.explanation)
         .map((u) => [u.id, { unitTitle: u.title, explanation: u.explanation!, workedExample: u.workedExample }]),
     ),
-    units: listSkillsForTopic(ctx.db, topic.id).map((s) => ({ unitId: s.unit.id, title: s.unit.title, objective: s.unit.objective })),
+    units: listSkillsForTopic(ctx.db, topic.id).map((s) => ({
+      unitId: s.unit.id,
+      title: s.unit.title,
+      objective: s.unit.objective,
+      hasCheckedExplanation: !!s.unit.explanation,
+    })),
     noQuestionsAvailable: sqs.length === 0,
   };
 }
@@ -517,10 +525,10 @@ export type SessionView = ReturnType<typeof getSessionView>;
 /** What the learner is doing now, in plain words. Help never changes this label retroactively. */
 function modeLabel(session: SessionRow): string {
   if (session.mode === "review") {
-    if (session.phase === "repair") return "Supported practice";
-    return session.purpose === "review" ? "Review" : "Independent check";
+    if (session.phase === "repair") return "Practice";
+    return session.purpose === "review" ? "Review" : "Quick check";
   }
-  return session.purpose === "practice" ? "Supported practice" : "Learn";
+  return session.purpose === "practice" ? "Practice" : "Learn";
 }
 
 const NOUN: Record<string, string> = { explain: "explanation", calculate: "calculation", derive: "derivation", apply: "application" };
@@ -542,14 +550,14 @@ function summariseResults(
       sentences.push(
         s.originalIndependent
           ? s.taskType === "explain"
-            ? `You explained ${topicTitle} independently.`
-            : `You completed the ${noun} independently.`
-          : `The ${noun} met the criteria with support.`,
+            ? `You explained ${topicTitle} on your own.`
+            : `You got the ${noun} right on your own.`
+          : `The ${noun} met the criteria with help.`,
       );
     } else if (s.repaired) {
-      sentences.push(`${noun.charAt(0).toUpperCase()}${noun.slice(1)} completed with support. A fresh independent check is scheduled.`);
+      sentences.push(`${noun.charAt(0).toUpperCase()}${noun.slice(1)} fixed with help. A fresh no-help check is scheduled.`);
     } else {
-      sentences.push(`The ${noun} needs practice.`);
+      sentences.push(`The ${noun} missed a step.`);
       gap ??= { skillId: s.skillId, sessionQuestionId: s.sessionQuestionId, noun };
     }
   }
@@ -557,7 +565,7 @@ function summariseResults(
     summary: sentences.join(" "),
     nextAction: gap
       ? { kind: "practise" as const, label: `Practise ${gap.noun}`, sessionQuestionId: gap.sessionQuestionId }
-      : { kind: "overview" as const, label: "Return to overview", sessionQuestionId: null },
+      : { kind: "overview" as const, label: "Done", sessionQuestionId: null },
   };
 }
 
@@ -622,6 +630,16 @@ export async function submitAnswer(ctx: AppContext, sessionId: string, input: Su
     }
 
     const now = ctx.clock.now();
+    // Asking the lecture chat about this skill shortly before counts as help, like an explanation in this session.
+    if (phase === "original" && recentChatHelp(ctx, [sq.skillId], now).size > 0 && !exposedSkillsSoFar(ctx.db, sessionId).has(sq.skillId)) {
+      insertExposure(ctx.db, {
+        sessionId,
+        kind: "explanation",
+        affectedSkillIds: [sq.skillId],
+        contentRef: `chat-recent:${sq.id}`,
+        recordedAt: now,
+      });
+    }
     if (input.declaredAssistance) {
       // Self-reported outside help is recorded as an exposure before the submission.
       insertExposure(ctx.db, {

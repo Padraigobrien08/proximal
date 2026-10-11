@@ -1,5 +1,6 @@
 import { ok, route } from "@/lib/http/handler";
 import { getAppContext } from "@/lib/server";
+import { runForSession } from "@/lib/services/runs";
 import { demoExamplesFor, getSessionView } from "@/lib/services/sessions";
 
 export const runtime = "nodejs";
@@ -15,5 +16,5 @@ export const GET = route({ mutation: false }, async (_req: Request, { params }: 
   const demoExamples = Object.fromEntries(
     [...new Set(questionIds.filter((x): x is string => !!x))].map((qid) => [qid, demoExamplesFor(ctx, qid)]),
   );
-  return ok({ ...view, demoExamples });
+  return ok({ ...view, demoExamples, run: runForSession(ctx, id) });
 });

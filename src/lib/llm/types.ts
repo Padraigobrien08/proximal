@@ -35,6 +35,23 @@ export interface TutorInput {
   request: "explanation" | "worked_example";
 }
 
+export interface ChatInput {
+  moduleTitle: string;
+  question: string;
+  /** Recent turns of this conversation, oldest first. Untrusted data. */
+  history: { role: "user" | "assistant"; content: string }[];
+  /** Retrieved lecture pages; `ref` is what the model cites. Untrusted data. */
+  pages: { ref: number; sourceLabel: string; page: number; text: string }[];
+}
+
+export interface ChatReply {
+  answer: string;
+  /** Page refs the answer relies on (validated against the pages provided). */
+  citedRefs: number[];
+  /** False when the lecture pages do not cover the question and the answer is general knowledge. */
+  coveredBySources: boolean;
+}
+
 export type LiveVendor = "anthropic" | "openai";
 
 export interface ProviderMeta {
@@ -56,6 +73,8 @@ export interface LearningProvider {
   generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }>;
   assessAnswer(input: AssessmentInput): Promise<{ output: AssessorOutput; meta: ProviderMeta }>;
   tutor(input: TutorInput): Promise<{ explanation: string; meta: ProviderMeta }>;
+  /** Lecture chat. Absent (or offline_unsupported) means retrieval-only answers. Metered as the tutor job. */
+  chat?(input: ChatInput): Promise<{ reply: ChatReply; meta: ProviderMeta }>;
 }
 
 export class ProviderError extends Error {
@@ -71,4 +90,5 @@ export class ProviderError extends Error {
 
 export const OFFLINE_ASSESS_MESSAGE = "Offline demo can assess the supplied example answers only.";
 export const OFFLINE_CURRICULUM_MESSAGE = "Offline mode cannot generate a curriculum for this file.";
+export const OFFLINE_CHAT_MESSAGE = "Offline mode has no AI chat. Showing the most relevant lecture pages instead.";
 export const OFFLINE_TUTOR_MESSAGE = "Offline mode has no tutor. Only the checked fixture explanations are available.";

@@ -1,33 +1,29 @@
 // Learner-facing wording. Pure and client-safe.
+import { LEVELS } from "./levels";
 import { MS_DAY, type EvidenceState, type TaskType } from "./types";
 
+/** Evidence states use the mastery level names (see levels.ts) so every screen shares one vocabulary. */
 export const EVIDENCE_LABELS: Record<EvidenceState, { label: string; explanation: string; tone: "neutral" | "info" | "good" | "warn" }> = {
-  unassessed: {
-    label: "Not checked yet",
-    explanation: "No usable evidence for this skill yet. This is not a failure.",
-    tone: "neutral",
-  },
+  unassessed: { label: LEVELS[0].name, explanation: LEVELS[0].meaning, tone: "neutral" },
   developing: {
-    label: "Needs practice",
-    explanation: "The accepted attempt showed an incomplete or incorrect step. That is normal while learning; another check is scheduled.",
+    label: LEVELS[1].name,
+    explanation: "The last answer that counted missed a step. That is normal while learning; another check is scheduled.",
     tone: "warn",
   },
   supported: {
-    label: "Completed with support",
-    explanation:
-      "Criteria met after relevant instruction, a hint, notes or feedback. Useful practice, but not independent evidence.",
+    label: LEVELS[2].name,
+    explanation: "Right after an explanation, hint, notes or feedback. Useful practice; a no-help check is still needed to reach Checked.",
     tone: "info",
   },
   demonstrated_once: {
-    label: "Demonstrated independently",
-    explanation:
-      "One original independent-check answer met every essential criterion without help. A later check with a different question is needed before retention is recorded.",
+    label: LEVELS[3].name,
+    explanation: "One first answer met every essential criterion with no help. A later check on a different question is needed to reach Secure.",
     tone: "good",
   },
   retention_demonstrated: {
-    label: "Retention demonstrated",
+    label: LEVELS[4].name,
     explanation:
-      "Independent passes at least 24 hours apart, in different sessions and question families, including a new-context question. This describes observed performance, not permanent mastery.",
+      "No-help passes at least 24 hours apart, in different sessions and question types, including a new-context question. This describes what you've shown, not permanent mastery.",
     tone: "good",
   },
 };

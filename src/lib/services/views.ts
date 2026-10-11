@@ -4,13 +4,16 @@ import type { SkillReviewState } from "../domain/types";
 import { feedbackView, feedbackVisible, summariseSession } from "./sessions";
 import { EVIDENCE_LABELS, FRESHNESS_LABELS, judgedByLabel, dueLabel, formatDateTime, freshnessOf, isApplicationTask, relativeWhen } from "../domain/labels";
 import { MINUTES_PER_QUESTION } from "../domain/scheduler";
-import { buildStudyPlan, taskNoun, type PlanSkill } from "../domain/plan";
+import { buildStudyPlan, STEP_LABEL, taskNoun, type ActionKind, type PlanSkill, type StudyTask } from "../domain/plan";
+import { CHECKED, levelOf, type Level, type LevelRollup } from "../domain/levels";
 import type { QuestionPrivate } from "../domain/types";
 import {
   evidenceAttemptsForSkill,
   getAssessmentForAttempt,
   getCourse,
+  getSkill,
   getTopic,
+  getUnit,
   listCourses,
   listQuestionsForSkill,
   listSkillsForTopic,
@@ -24,6 +27,8 @@ import {
 import type { AppContext } from "./context";
 import { notFound } from "./errors";
 import { displaySkillState, openCheckpointSessionIds } from "./evidence";
+import { moduleMastery, topicMastery } from "./mastery";
+import { getStudyPlanSettings, plannedModuleIds } from "./settings";
 
 export function providerInfo(ctx: AppContext) {
   return { ...ctx.providerStatus };
@@ -43,11 +48,17 @@ export interface CourseListItem {
   independentlyCheckedSkillCount: number;
   sourceLabel: string | null;
   firstTopicId: string | null;
+  /** Subtopic level counts for the whole module. */
+  mastery: LevelRollup;
+  /** One entry per subtopic, strongest first, for compact level bars. */
+  subtopicLevels: { level: Level; due: boolean }[];
 }
 
 /** Real course counts: required skills and those with effective independent evidence (flagged passes excluded). */
 export function listCourseSummaries(ctx: AppContext): CourseListItem[] {
+  const hidden = openCheckpointSessionIds(ctx);
   return listCourses(ctx.db).map((c) => {
+    const mastery = moduleMastery(ctx, c.id, hidden);
     const topics = listTopics(ctx.db, c.id);
     const required = topics.flatMap((t) => listSkillsForTopic(ctx.db, t.id)).filter((s) => s.required);
     const independent = required.filter((s) => {
@@ -65,17 +76,31 @@ export function listCourseSummaries(ctx: AppContext): CourseListItem[] {
       independentlyCheckedSkillCount: independent,
       sourceLabel: source ? (source.label ?? source.originalName) : null,
       firstTopicId: topics[0]?.id ?? null,
+      mastery: mastery.rollup,
+      subtopicLevels: mastery.topics
+        .flatMap((t) => t.subtopics.map((u) => ({ level: u.level, due: u.due })))
+        .sort((a, b) => b.level - a.level),
     };
   });
 }
 
-export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
-  const now = ctx.clock.now();
-  const courses = listCourses(ctx.db).filter((c) => c.status === "approved");
+export interface PlanScope {
+  courseId?: string;
+  topicId?: string;
+}
+
+/** Plan inputs from persisted evidence, optionally limited to one module or topic. */
+export function collectPlanInput(ctx: AppContext, scope: PlanScope = {}) {
+  // Without an explicit module or topic, the learner's plan settings decide which modules are included.
+  const included = scope.courseId || scope.topicId ? null : plannedModuleIds(ctx);
+  const courses = listCourses(ctx.db).filter(
+    (c) => c.status === "approved" && (!scope.courseId || c.id === scope.courseId) && (!included || included.has(c.id)),
+  );
   const skills: PlanSkill[] = [];
   const lastAttemptAt = new Map<string, number>();
   courses.forEach((c, ci) => {
     listTopics(ctx.db, c.id).forEach((t, ti) => {
+      if (scope.topicId && t.id !== scope.topicId) return;
       listSkillsForTopic(ctx.db, t.id).forEach((s, si) => {
         if (s.unit.approvalStatus !== "approved") return;
         const st = displaySkillState(ctx, s.id);
@@ -105,8 +130,46 @@ export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
   });
 
   const activeIds = ctx.db.prepare("SELECT id FROM sessions WHERE status = 'active'").all() as { id: string }[];
-  const activeSessions = activeIds.map((r) => summariseSession(ctx, r.id)).filter((x): x is NonNullable<typeof x> => !!x);
-  const plan = buildStudyPlan({ now, budgetMinutes, skills, activeSessions, minutesPerQuestion: MINUTES_PER_QUESTION });
+  const activeSessions = activeIds
+    .map((r) => summariseSession(ctx, r.id))
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .filter(
+      (x) =>
+        (!scope.courseId || x.courseId === scope.courseId) &&
+        (!scope.topicId || x.topicId === scope.topicId) &&
+        (!included || included.has(x.courseId)),
+    );
+  return { skills, activeSessions, lastAttemptAt };
+}
+
+/** Longer sessions may hold more steps: roughly one step per ten minutes, never fewer than three. */
+export function maxStepsFor(budgetMinutes: number): number {
+  return Math.max(3, Math.round(budgetMinutes / 10));
+}
+
+export function planFor(ctx: AppContext, budgetMinutes: number, scope: PlanScope = {}) {
+  const { skills, activeSessions } = collectPlanInput(ctx, scope);
+  return buildStudyPlan({
+    now: ctx.clock.now(),
+    budgetMinutes,
+    skills,
+    activeSessions,
+    minutesPerQuestion: MINUTES_PER_QUESTION,
+    maxTasks: maxStepsFor(budgetMinutes),
+  });
+}
+
+export function getHomeView(ctx: AppContext, budgetMinutes: number) {
+  const now = ctx.clock.now();
+  const { skills, activeSessions, lastAttemptAt } = collectPlanInput(ctx);
+  const plan = buildStudyPlan({
+    now,
+    budgetMinutes,
+    skills,
+    activeSessions,
+    minutesPerQuestion: MINUTES_PER_QUESTION,
+    maxTasks: maxStepsFor(budgetMinutes),
+  });
 
   const recentEvidence = skills
     .filter((s) => lastAttemptAt.has(s.skillId))
@@ -133,8 +196,10 @@ export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
       };
     });
 
+  const byId = new Map(skills.map((x) => [x.skillId, x]));
   const describe = <T extends { dueAt: number | null }>(t: T) => ({
     ...t,
+    ...("action" in t ? taskDisplay(ctx, t as unknown as StudyTask, byId) : {}),
     dueWhen: t.dueAt !== null ? relativeWhen(t.dueAt, now, ctx.timezone) : null,
     dueExact: t.dueAt !== null ? formatDateTime(t.dueAt, ctx.timezone) : null,
   });
@@ -150,27 +215,66 @@ export function getHomeView(ctx: AppContext, budgetMinutes: 10 | 20 | 30) {
     nextScheduledCheck: plan.nextScheduledCheck ? describe(plan.nextScheduledCheck) : null,
     recentEvidence,
     courses: listCourseSummaries(ctx),
+    modules: moduleStudyCards(ctx, budgetMinutes),
+    planSettings: getStudyPlanSettings(ctx),
   };
+}
+
+/** Per-module "Study now" data: what a session for just this module would start with. */
+function moduleStudyCards(ctx: AppContext, budgetMinutes: number) {
+  const included = plannedModuleIds(ctx);
+  const now = ctx.clock.now();
+  return listCourses(ctx.db)
+    .filter((c) => c.status === "approved")
+    .map((c) => {
+      const { skills, activeSessions } = collectPlanInput(ctx, { courseId: c.id });
+      const plan = buildStudyPlan({
+        now,
+        budgetMinutes,
+        skills,
+        activeSessions,
+        minutesPerQuestion: MINUTES_PER_QUESTION,
+        maxTasks: maxStepsFor(budgetMinutes),
+      });
+      const first = plan.plan.find((t) => t.action !== "view");
+      const byId = new Map(skills.map((x) => [x.skillId, x]));
+      return {
+        id: c.id,
+        inPlan: !included || included.has(c.id),
+        nextUp: first ? { ...taskDisplay(ctx, first, byId), reason: first.reason, totalMinutes: plan.totalMinutes } : null,
+        nextCheckWhen: plan.nextScheduledCheck ? relativeWhen(plan.nextScheduledCheck.dueAt, now, ctx.timezone) : null,
+      };
+    });
 }
 
 export type HomeView = ReturnType<typeof getHomeView>;
 
+/** Subtopic titles and the learner-facing step kind for a plan task. */
+function taskDisplay(ctx: AppContext, t: StudyTask, skills: Map<string, PlanSkill>) {
+  const titles = [...new Set(t.skillIds.map((id) => getSkill(ctx.db, id)?.unitId).filter((x): x is string => !!x))]
+    .map((id) => getUnit(ctx.db, id)?.title)
+    .filter((x): x is string => !!x);
+  const firstCheck = t.action === "review" && t.skillIds.every((id) => levelOf(skills.get(id)?.evidenceState ?? "unassessed") < CHECKED);
+  const kind: ActionKind = firstCheck ? "check" : t.action;
+  return { subtopicTitles: titles.length ? titles.join(" · ") : t.topicTitle, kind, kindLabel: STEP_LABEL[kind] };
+}
+
 /** Concise explanation of what evidence is still missing for a skill. */
 function coverageNote(state: SkillReviewState, reviewAvailable: boolean, transferRequired: boolean): string {
-  if (!reviewAvailable) return "Reviewed assessment questions needed before an independent check.";
+  if (!reviewAvailable) return "Reviewed assessment questions needed before a no-help check.";
   switch (state.evidenceState) {
     case "unassessed":
-      return "Not checked yet. This is not a failure.";
+      return "Not started yet. This is not a failure.";
     case "developing":
-      return "The last accepted answer missed a step. A fresh independent check is scheduled.";
+      return "The last answer that counted missed a step. Another check is scheduled.";
     case "supported":
-      return "Completed with help. A fresh independent check is still needed.";
+      return "Right with help. A no-help check moves it to Checked.";
     case "demonstrated_once":
       return transferRequired && !state.transferCovered
-        ? "One independent pass. A later check with a new-context question is still needed."
-        : "One independent pass. A later check at least 24 hours after it is still needed for retention.";
+        ? "Right on your own once. A later check on a new-context question moves it to Secure."
+        : "Right on your own once. Another no-help check at least a day later moves it to Secure.";
     case "retention_demonstrated":
-      return "Independent checks across a delay, including a new-context question.";
+      return "Right on your own across a delay, including a new-context question.";
   }
 }
 
@@ -268,8 +372,8 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     else if (!asm) resultLabel = r.status === "provider_error" ? "Assessment failed · retry available" : "Assessment pending";
     else if (asm.excluded) resultLabel = "Judgement excluded";
     else if (asm.outcome === "uncertain") resultLabel = "Not enough evidence to judge this answer";
-    else if (asm.outcome === "pass") resultLabel = independent ? "Demonstrated independently" : "Completed with support";
-    else resultLabel = supportUsed ? "Needs practice · support used" : "Needs practice";
+    else if (asm.outcome === "pass") resultLabel = independent ? "Right with no help" : "Right with help";
+    else resultLabel = supportUsed ? "Missed a step · help used" : "Missed a step";
     return {
       kind: "attempt" as const,
       at: r.submittedAt,
@@ -280,7 +384,7 @@ export function getTopicView(ctx: AppContext, topicId: string) {
       questionId: q.id,
       isTransfer: q.isTransfer,
       taskType: q.taskType,
-      stage: r.phase === "repair" ? "Supported correction" : r.sessionMode === "learn" ? "Learning answer" : "Original answer",
+      stage: r.phase === "repair" ? "Correction (practice)" : r.sessionMode === "learn" ? "Practice answer" : "First answer",
       answer: r.dontKnow ? "I don't know" : r.answer,
       resultLabel,
       evidenceKind: sealed || !asm ? "pending" : independent ? "independent" : "supported",
@@ -324,10 +428,14 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     .prepare("SELECT id, mode, purpose, phase, created_at AS createdAt FROM sessions WHERE topic_id = ? AND status = 'active' ORDER BY created_at DESC")
     .all(topic.id) as { id: string; mode: string; purpose: string; phase: string; createdAt: number }[];
 
+  const mastery = topicMastery(ctx, topic, hidden);
+
   return {
     provider: providerInfo(ctx),
     topic: { id: topic.id, title: topic.title },
     course: { id: course.id, title: course.title, isDemo: course.isDemo, status: course.status },
+    rollup: mastery.rollup,
+    subtopics: mastery.subtopics,
     source: source ? { id: source.id, label: source.label ?? source.originalName } : null,
     units: units.map((u) => ({
       id: u.id,
@@ -377,6 +485,7 @@ export function getCourseView(ctx: AppContext, courseId: string) {
       notice: course.notice,
     },
     sources,
+    mastery: moduleMastery(ctx, course.id),
     topics: listTopics(ctx.db, course.id).map((t) => ({
       id: t.id,
       title: t.title,

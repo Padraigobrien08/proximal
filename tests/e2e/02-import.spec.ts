@@ -30,13 +30,18 @@ test("sample PDF import: extraction, draft edit, explicit approval, page refs, r
   // Explicit approval.
   await page.getByTestId("approve").click();
   await expect(page.getByText("Curriculum approved. Objectives are now frozen.")).toBeVisible();
-  await expect(page.getByText("Model notation (edited)")).toBeVisible();
+  // Approved modules lead with topics and subtopic levels; objective detail is one click away.
+  await expect(page.getByTestId("module-summary")).toContainText("0 of 5 subtopics checked on your own");
+  const firstTopic = page.getByTestId(/^topic-row-/).first();
+  await expect(firstTopic).toContainText("Model notation (edited)");
+  await page.getByText("Objectives and skills").click();
   await expect(page.getByText("Optional").first()).toBeVisible();
   await expect(page.getByText("Reviewed assessment questions needed").first()).toBeVisible();
 
-  // Imported topic: review disabled with an honest reason.
-  await page.getByRole("link", { name: "Open topic" }).first().click();
-  await expect(page.getByText("Reviewed assessment questions needed.").first()).toBeVisible();
+  // Imported topic: no-help checks disabled with an honest reason.
+  await firstTopic.click();
+  await expect(page.getByText("No-help checks are disabled until an owner-authored")).toBeVisible();
+  await page.getByTestId("choose-study").click();
   await expect(page.getByTestId("start-review")).toBeDisabled();
-  await expect(page.getByText("Independent checks are disabled until an owner-authored")).toBeVisible();
+  await expect(page.getByTestId("start-review")).toContainText("Reviewed assessment questions needed.");
 });

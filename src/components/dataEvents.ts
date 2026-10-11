@@ -13,3 +13,10 @@ export const OPEN_IMPORT = "proximal:open-import";
 export function openImportDialog() {
   window.dispatchEvent(new Event(OPEN_IMPORT));
 }
+
+export const OPEN_CHAT = "proximal:open-chat";
+
+/** Ask the shell to open "Ask your lectures" for a module. */
+export function openChat(courseId: string) {
+  window.dispatchEvent(new CustomEvent(OPEN_CHAT, { detail: { courseId } }));
+}

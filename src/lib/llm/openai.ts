@@ -12,9 +12,12 @@ import {
   TUTOR_PROMPT_VERSION,
   TUTOR_SYSTEM,
   tutorUserContent,
+  CHAT_PROMPT_VERSION,
+  CHAT_SYSTEM,
+  chatUserContent,
 } from "./prompts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
-import { assessorJsonSchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
+import { assessorJsonSchema, chatJsonSchema, chatReplySchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
 import {
   ProviderError,
   type AssessmentInput,
@@ -23,6 +26,8 @@ import {
   type LearningProvider,
   type ProviderMeta,
   type TutorInput,
+  type ChatInput,
+  type ChatReply,
 } from "./types";
 
 export const OPENAI_TIMEOUT_MS = 60_000;
@@ -188,6 +193,11 @@ export class OpenAIProvider implements LearningProvider {
     const explanation = text.trim().slice(0, MAX_TUTOR_CHARS);
     if (!explanation) throw new ProviderError("Tutor returned no text.", "provider_malformed", true);
     return { explanation, meta: this.meta("tutor", TUTOR_PROMPT_VERSION, usage) };
+  }
+
+  async chat(input: ChatInput): Promise<{ reply: ChatReply; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured("tutor", CHAT_SYSTEM, chatUserContent(input), { name: "chat_reply", schema: chatJsonSchema }, chatReplySchema);
+    return { reply: value, meta: this.meta("tutor", CHAT_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

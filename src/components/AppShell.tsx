@@ -3,24 +3,29 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, LayoutDashboard, Plus, X } from "lucide-react";
+import { BookOpen, LayoutDashboard, Plus, Settings, X } from "lucide-react";
 import { vendorName } from "@/lib/domain/labels";
+import type { Level } from "@/lib/domain/levels";
+import { LevelBar } from "./levels";
 import { OPEN_IMPORT } from "./dataEvents";
+import { ChatDrawer } from "./ChatDrawer";
 import { ImportPanel } from "./ImportPanel";
 import type { ProviderInfo } from "./ProviderBadge";
 import { useApiResource } from "./useApiResource";
 
 interface ShellData {
   provider: ProviderInfo;
-  courses: { id: string; title: string; status: "draft" | "approved" }[];
+  courses: { id: string; title: string; status: "draft" | "approved"; subtopicLevels: { level: Level; due: boolean }[] }[];
 }
 
 function section(pathname: string): string {
   if (pathname === "/") return "Overview";
-  if (pathname === "/courses") return "Courses";
-  if (pathname.startsWith("/courses/")) return "Course";
+  if (pathname === "/courses") return "Modules";
+  if (pathname.startsWith("/courses/")) return "Module";
   if (pathname.startsWith("/topics/")) return "Topic";
   if (pathname.startsWith("/sessions/")) return "Session";
+  if (pathname.startsWith("/runs/")) return "Session complete";
+  if (pathname === "/settings") return "Settings";
   return "Workspace";
 }
 
@@ -45,7 +50,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const nav = [
     { href: "/", label: "Overview", Icon: LayoutDashboard, active: pathname === "/" },
-    { href: "/courses", label: "Courses", Icon: BookOpen, active: pathname === "/courses" || pathname.startsWith("/courses/") },
+    { href: "/courses", label: "Modules", Icon: BookOpen, active: pathname === "/courses" || pathname.startsWith("/courses/") },
+    { href: "/settings", label: "Settings", Icon: Settings, active: pathname === "/settings" },
   ];
 
   return (
@@ -77,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         {data && data.courses.length > 0 && (
           <div className="hidden md:block">
-            <p className="mb-2 px-3 text-[11px] font-medium uppercase tracking-[0.1em] text-side-muted">Your courses</p>
+            <p className="mb-2 px-3 text-[11px] font-medium uppercase tracking-[0.1em] text-side-muted">Your modules</p>
             <ul className="space-y-0.5">
               {data.courses.map((c) => {
                 const href = `/courses/${c.id}`;
@@ -92,7 +98,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       }`}
                     >
                       {c.title}
-                      {c.status === "draft" && <span className="block text-[11px] text-side-muted">Draft</span>}
+                      {c.status === "draft" ? (
+                        <span className="block text-[11px] text-side-muted">Draft</span>
+                      ) : (
+                        <span className="mt-1.5 block">
+                          <LevelBar subtopics={c.subtopicLevels ?? []} size="sm" />
+                        </span>
+                      )}
                     </Link>
                   </li>
                 );
@@ -131,6 +143,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <ChatDrawer />
     </div>
   );
 }

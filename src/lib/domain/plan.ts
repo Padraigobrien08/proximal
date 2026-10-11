@@ -5,6 +5,16 @@ import type { EvidenceState, TaskType } from "./types";
 
 export type ActionKind = "learn" | "practice" | "check" | "review" | "resume" | "view";
 
+/** Learner-facing step names. A review of skills never yet right without help is shown as a quick check. */
+export const STEP_LABEL: Record<ActionKind, string> = {
+  learn: "Learn",
+  practice: "Practice",
+  check: "Quick check",
+  review: "Review",
+  resume: "Continue",
+  view: "Topic",
+};
+
 export interface StudyTask {
   /** Stable recommendation identity (not a learning event). */
   id: string;
@@ -164,7 +174,7 @@ function resumeTask(s: PlanSession, skills: Map<string, PlanSkill>, mpq: number)
     reason = `${s.remainingQuestions} practice question${s.remainingQuestions === 1 ? "" : "s"} left`;
     minutes = s.remainingQuestions * mpq;
   } else if (s.phase === "checkpoint") {
-    title = s.purpose === "review" ? "Continue your review" : "Continue your independent check";
+    title = s.purpose === "review" ? "Continue your review" : "Continue your quick check";
     reason = `${s.answered} of ${s.total} answers saved`;
     minutes = Math.max(1, s.total - s.answered) * mpq;
   } else if (s.phase === "results" && s.providerErrors > 0) {

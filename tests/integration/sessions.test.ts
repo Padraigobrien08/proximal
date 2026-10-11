@@ -73,7 +73,7 @@ describe("showcase checkpoint (mock mode)", () => {
     expect(results.session.phase).toBe("results");
     const s4 = results.results!.skills.find((s) => s.skillId === "S4")!;
     const s5 = results.results!.skills.find((s) => s.skillId === "S5")!;
-    expect(s4.label).toBe("Demonstrated independently");
+    expect(s4.label).toBe("Checked");
     expect(s5.evidenceState).toBe("developing");
     expect(s5.reassessmentNeeded).toBe(true);
     expect(results.results!.feedbackReleased).toBe(false);
@@ -107,7 +107,7 @@ describe("showcase checkpoint (mock mode)", () => {
     // 6. Topic shows application skill needing a future independent check with a due date.
     const topic = getTopicView(ctx, BCE);
     const s5View = topic.skills.find((s) => s.id === "S5")!;
-    expect(s5View.label).toBe("Completed with support");
+    expect(s5View.label).toBe("Practised");
     expect(s5View.reassessmentNeeded).toBe(true);
     expect(s5View.dueLabel).toMatch(/Review due/);
     expect(attemptHistory(topic).filter((e) => e.skillId === "S5").map((e) => e.evidenceKind).sort()).toEqual(["independent", "supported"]);

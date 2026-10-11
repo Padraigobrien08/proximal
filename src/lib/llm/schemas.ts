@@ -138,3 +138,23 @@ export function validateCurriculumDraft(
   }
   return problems;
 }
+
+export const MAX_CHAT_QUESTION_CHARS = 2000;
+export const MAX_CHAT_ANSWER_CHARS = 4000;
+
+export const chatReplySchema = z.strictObject({
+  answer: z.string().min(1).max(MAX_CHAT_ANSWER_CHARS),
+  citedRefs: z.array(z.number().int().min(1)).max(20),
+  coveredBySources: z.boolean(),
+});
+
+export const chatJsonSchema: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    answer: { type: "string" },
+    citedRefs: { type: "array", items: { type: "integer" } },
+    coveredBySources: { type: "boolean" },
+  },
+  required: ["answer", "citedRefs", "coveredBySources"],
+  additionalProperties: false,
+};

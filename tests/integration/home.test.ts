@@ -66,7 +66,7 @@ describe("home view (U01, U05, U12, U14)", () => {
     const home = getHomeView(ctx, 30);
     expect(home.recommendation?.sessionId ?? null).not.toBe(sessionId);
     const recent = Object.fromEntries(home.recentEvidence.map((r) => [r.skillId, r.label]));
-    expect(recent).toMatchObject({ S4: "Demonstrated independently", S5: "Completed with support" });
+    expect(recent).toMatchObject({ S4: "Checked", S5: "Practised" });
     expect(home.nextScheduledCheck?.topicId).toBe(BCE);
     // Normally 24 elapsed hours after the original gap attempt.
     const failSubmitted = ctx.db.prepare("SELECT submitted_at AS t FROM attempts WHERE id = ?").get(failAttemptId) as { t: number };
@@ -112,11 +112,14 @@ describe("home view (U01, U05, U12, U14)", () => {
     expect(s4.checkInProgress).toBe(true);
     const row = topic.history.find((h) => h.kind === "attempt")!;
     expect(row).toMatchObject({ resultLabel: "Answer saved · results after the check", feedback: null, assessmentId: null });
-    expect(JSON.stringify(topic)).not.toMatch(/briefReason|Demonstrated independently/);
+    expect(JSON.stringify(topic)).not.toMatch(/briefReason|Right with no help/);
+    // Subtopic levels and rollups cannot reveal the open check either.
+    expect(topic.subtopics.find((u) => u.id === "U4")!.level).toBe(0);
     expect(listCourseSummaries(ctx)[0].independentlyCheckedSkillCount).toBe(0);
+    expect(listCourseSummaries(ctx)[0].mastery.checked).toBe(0);
     const home = getHomeView(ctx, 20);
-    expect(home.recommendation).toMatchObject({ action: "resume", title: "Continue your independent check", reason: "1 of 2 answers saved" });
-    expect(JSON.stringify(home)).not.toMatch(/Demonstrated independently/);
+    expect(home.recommendation).toMatchObject({ action: "resume", title: "Continue your quick check", reason: "1 of 2 answers saved" });
+    expect(JSON.stringify(home)).not.toMatch(/Right with no help/);
   });
 
   it("U14: initial home/topic/session payloads carry no reference answers, private hints, rubrics or keys", async () => {
@@ -146,7 +149,7 @@ describe("home view (U01, U05, U12, U14)", () => {
     expect(practise).toMatchObject({ topicId: BCE, skillIds: ["S5"], reason: "Your last calculation needs another step" });
     const p = startSession(ctx, { topicId: BCE, purpose: "practice", skillIds: ["S5"] });
     const view = getSessionView(ctx, p.sessionId);
-    expect(view.session.modeLabel).toBe("Supported practice");
+    expect(view.session.modeLabel).toBe("Practice");
     expect(view.current?.question.id).toBe("S5-A");
   });
 });
