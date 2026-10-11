@@ -6,8 +6,12 @@ import { useApiResource } from "../useApiResource";
 import { api, ApiError } from "../api";
 import type { ProviderInfo } from "../ProviderBadge";
 import { notifyDataChanged } from "../dataEvents";
-import { ProviderNotice } from "../workspace";
-import { Button, ButtonLink, Card, Loading, Notice, Pill } from "../ui";
+import { ArrowRight, ChevronRight } from "lucide-react";
+import type { Level, LevelRollup } from "@/lib/domain/levels";
+import { DuePill, HowLevelsWork, LevelBar, LevelLegend, RollupSummary, rollupSentence } from "../levels";
+import { AskButton } from "../AskButton";
+import { ProviderNotice, useContinue } from "../workspace";
+import { Button, Card, Loading, Notice, Pill } from "../ui";
 
 interface CourseData {
   provider: ProviderInfo;
@@ -20,6 +24,10 @@ interface CourseData {
     pageCount: number | null;
     pages: { page: number; lowTextWarning: boolean; charCount: number; text: string | null }[];
   }[];
+  mastery: {
+    rollup: LevelRollup;
+    topics: { id: string; title: string; rollup: LevelRollup; subtopics: { id: string; title: string; level: Level; due: boolean }[] }[];
+  };
   topics: {
     id: string;
     title: string;
@@ -43,6 +51,7 @@ export function CourseScreen({ courseId }: { courseId: string }) {
   const [edits, setEdits] = useState<Record<string, UnitEdit>>({});
   const [adding, setAdding] = useState({ topicTitle: "", title: "", objective: "", pages: "" });
   const [busy, setBusy] = useState(false);
+  const go = useContinue();
 
   const dirty = Object.keys(edits).length > 0;
   const editUnit = (unitId: string, patch: Partial<UnitEdit>) =>
@@ -129,15 +138,42 @@ export function CourseScreen({ courseId }: { courseId: string }) {
       <ProviderNotice provider={data.provider} />
       <div>
         <Link href="/courses" className="text-sm text-teal hover:underline">
-          ← Courses
+          ← Modules
         </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[30px]">{data.course.title}</h1>
-          {data.course.isDemo && <Pill tone="warn">Demo course</Pill>}
-          <Pill tone={draft ? "warn" : "good"}>{draft ? "Draft – not yet approved" : "Approved"}</Pill>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[30px]">{data.course.title}</h1>
+              {data.course.isDemo && <Pill tone="warn">Demo module</Pill>}
+              {draft && <Pill tone="warn">Draft – not yet approved</Pill>}
+            </div>
+            <p className="mt-1 text-sm text-muted">
+              {data.topics.length} topic{data.topics.length === 1 ? "" : "s"} · {data.mastery.rollup.total} subtopic
+              {data.mastery.rollup.total === 1 ? "" : "s"}
+              {data.sources[0] ? ` · ${data.sources[0].label}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+          <AskButton courseId={courseId} />
+          {!draft && (
+            <button
+              type="button"
+              onClick={() => go.start({ courseId })}
+              disabled={go.busy}
+              data-testid="continue-module"
+              className="inline-flex min-h-11 items-center gap-2 rounded-[7px] bg-teal px-4 text-sm font-medium text-white hover:bg-teal-dark disabled:opacity-60"
+            >
+              {go.busy ? "Starting…" : "Continue this module"}
+              <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          )}
+          </div>
         </div>
         {data.course.notice && <p className="mt-1 text-sm text-muted">{data.course.notice}</p>}
       </div>
+
+      {go.error && <Notice tone="warn">{go.error}</Notice>}
+      {!draft && <ModuleOverview mastery={data.mastery} />}
 
       {notice && <Notice tone={notice.tone === "good" ? "good" : notice.tone}>{notice.text}</Notice>}
 
@@ -151,11 +187,11 @@ export function CourseScreen({ courseId }: { courseId: string }) {
 
       {data.topics.length === 0 && draft && <Card><p className="text-sm text-muted">No objectives yet. Add them manually below.</p></Card>}
 
+      <DetailWrapper collapsed={!draft}>
       {data.topics.map((t) => (
         <Card key={t.id}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-[17px] font-semibold tracking-tight">{t.title}</h2>
-            {!draft && <ButtonLink href={`/topics/${t.id}`} variant="secondary">Open topic</ButtonLink>}
           </div>
           <ol className="mt-4 space-y-4">
             {t.units.map((u) => {
@@ -269,6 +305,7 @@ export function CourseScreen({ courseId }: { courseId: string }) {
           </ol>
         </Card>
       ))}
+      </DetailWrapper>
 
       {draft && (
         <Card>
@@ -321,11 +358,12 @@ export function CourseScreen({ courseId }: { courseId: string }) {
         </Card>
       )}
 
+      <DetailWrapper collapsed={!draft} summary="Sources">
       <Card>
         <h2 className="font-semibold">Sources</h2>
         <p className="mt-1 text-xs text-muted">
           Opening a PDF here records a source exposure for any active study session in this course, so answers given afterwards in that
-          session count as supported.
+          session count as practice.
         </p>
         {data.sources.map((s) => (
           <div key={s.id} className="mt-3 text-sm">
@@ -353,6 +391,63 @@ export function CourseScreen({ courseId }: { courseId: string }) {
           </div>
         ))}
       </Card>
+      </DetailWrapper>
     </div>
+  );
+}
+
+/** Approved modules lead with progress; the objective and source detail stays one click away. */
+function DetailWrapper({ collapsed, summary = "Objectives and skills", children }: { collapsed: boolean; summary?: string; children: React.ReactNode }) {
+  if (!collapsed) return <>{children}</>;
+  return (
+    <details className="group rounded-xl border border-line bg-card px-5 py-4">
+      <summary className="font-medium">{summary}</summary>
+      <div className="mt-4 space-y-4">{children}</div>
+    </details>
+  );
+}
+
+function ModuleOverview({ mastery }: { mastery: CourseData["mastery"] }) {
+  const allSubtopics = mastery.topics.flatMap((t) => t.subtopics);
+  return (
+    <>
+      <section className="rounded-xl border border-line bg-card p-5 sm:p-6" data-testid="module-summary">
+        <RollupSummary rollup={mastery.rollup} subtopics={allSubtopics} />
+      </section>
+      <section aria-labelledby="topics-title" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="topics-title" className="text-[17px] font-semibold tracking-tight">
+            Topics
+          </h2>
+          <LevelLegend />
+        </div>
+        <ul className="overflow-hidden rounded-xl border border-line bg-card">
+          {mastery.topics.map((t) => (
+            <li key={t.id} className="border-b border-line last:border-b-0">
+              <Link
+                href={`/topics/${t.id}`}
+                data-testid={`topic-row-${t.id}`}
+                className="grid gap-3 px-5 py-4 hover:bg-teal-soft sm:grid-cols-[minmax(0,1fr)_200px_16px] sm:items-center sm:gap-5"
+              >
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">
+                    {t.title} {t.rollup.due > 0 && <DuePill />}
+                  </p>
+                  <p className="text-xs text-muted">{t.subtopics.map((u) => u.title).join(" · ")}</p>
+                </div>
+                <div className="grid gap-1.5">
+                  <LevelBar subtopics={t.subtopics} label={rollupSentence(t.rollup)} />
+                  <span className="text-xs text-muted">
+                    {t.rollup.checked} of {t.rollup.total} checked on your own
+                  </span>
+                </div>
+                <ChevronRight size={16} aria-hidden="true" className="hidden text-muted sm:block" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <HowLevelsWork />
+    </>
   );
 }

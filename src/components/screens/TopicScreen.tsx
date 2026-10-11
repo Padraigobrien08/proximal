@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { BookOpenText, CircleHelp, ClipboardCheck, FileText, RotateCcw } from "lucide-react";
+import { ArrowRight, ChevronDown, CircleHelp, FileText } from "lucide-react";
+import type { Level, LevelRollup } from "@/lib/domain/levels";
 import { formatDateTime } from "@/lib/domain/labels";
 import type { EvidenceState } from "@/lib/domain/types";
 import { api, ApiError } from "../api";
@@ -13,7 +14,9 @@ import { FlagJudgementButton } from "../FlagDialog";
 import { HistoricalReplay } from "../HistoricalReplay";
 import type { ProviderInfo } from "../ProviderBadge";
 import { useApiResource } from "../useApiResource";
-import { ProviderNotice } from "../workspace";
+import { AskButton } from "../AskButton";
+import { DuePill, HowLevelsWork, LevelLadder, LevelPill, RollupSummary } from "../levels";
+import { ProviderNotice, useContinue } from "../workspace";
 import { Notice, Pill } from "../ui";
 
 const TZ = "Europe/London";
@@ -65,6 +68,18 @@ interface TopicData {
   course: { id: string; title: string; isDemo: boolean; status: string };
   source: { id: string; label: string } | null;
   units: { id: string; title: string; objective: string; sourcePages: number[] }[];
+  rollup: LevelRollup;
+  subtopics: {
+    id: string;
+    title: string;
+    objective: string;
+    sourcePages: number[];
+    level: Level;
+    due: boolean;
+    skillIds: string[];
+    lastLabel: string | null;
+    nextLabel: string;
+  }[];
   skills: SkillRow[];
   reviewAvailable: boolean;
   learnAvailable: boolean;
@@ -75,8 +90,8 @@ interface TopicData {
 
 const PURPOSE_TEXT: Record<string, string> = {
   learn: "learning session",
-  practice: "supported practice",
-  check: "independent check",
+  practice: "practice",
+  check: "quick check",
   review: "review",
 };
 
@@ -85,6 +100,8 @@ export function TopicScreen({ topicId }: { topicId: string }) {
   const { data, error, reload } = useApiResource<TopicData>(`/api/topics/${topicId}`);
   const [starting, setStarting] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const go = useContinue();
 
   async function start(purpose: "learn" | "check" | "review") {
     setStarting(purpose);
@@ -112,25 +129,23 @@ export function TopicScreen({ topicId }: { topicId: string }) {
 
   const skillById = new Map(data.skills.map((s) => [s.id, s]));
   const pages = [...new Set(data.units.flatMap((u) => u.sourcePages))].sort((a, b) => a - b);
-  const required = data.skills.filter((s) => s.required);
-  const optional = data.skills.filter((s) => !s.required);
   const anyFixture = data.skills.some((s) => s.questionStatuses.includes("authored_fixture"));
   const dueSkills = data.skills.filter((s) => s.isDue && s.reviewAvailable);
 
-  const actions = [
+  const choices = [
     {
       key: "learn" as const,
-      label: "Learn",
-      Icon: BookOpenText,
-      hint: "Explanation first, then practice with feedback. Counts as supported.",
+      testId: "start-learn",
+      label: "Learn from the start",
+      hint: "Explanations first, help available. Counts as practice.",
       disabled: !data.learnAvailable,
       reason: "No practice questions or tutor are available for this topic in offline mode.",
     },
     {
       key: "check" as const,
-      label: "Check understanding",
-      Icon: ClipboardCheck,
-      hint: "Answer without hints or notes. Feedback comes after all answers are saved.",
+      testId: "start-review",
+      label: "Check myself now",
+      hint: "No help. Feedback once every answer is saved. Can move subtopics to Checked.",
       disabled: !data.reviewAvailable,
       reason: "Reviewed assessment questions needed.",
     },
@@ -138,15 +153,15 @@ export function TopicScreen({ topicId }: { topicId: string }) {
       ? [
           {
             key: "review" as const,
-            label: "Review",
-            Icon: RotateCcw,
-            hint: `Scheduled check due for ${dueSkills.length === 1 ? "one skill" : `${dueSkills.length} skills`}.`,
+            testId: "start-due-review",
+            label: "Review what's due",
+            hint: `A no-help review of ${dueSkills.length === 1 ? "one skill" : `${dueSkills.length} skills`} that ${dueSkills.length === 1 ? "is" : "are"} due.`,
             disabled: false,
             reason: "",
           },
         ]
       : []),
-  ].sort((a, b) => (a.key === data.primaryAction ? -1 : b.key === data.primaryAction ? 1 : 0));
+  ];
 
   return (
     <div className="space-y-6">
@@ -154,16 +169,65 @@ export function TopicScreen({ topicId }: { topicId: string }) {
         <Link href={`/courses/${data.course.id}`} className="text-sm text-teal hover:underline">
           ← {data.course.title}
         </Link>
-        <h1 className="mt-2 text-[28px] font-semibold leading-tight tracking-tight sm:text-[30px]">{data.topic.title}</h1>
-        <p className="mt-1 text-[15px] text-muted">
-          {required.length === 1 ? "One required skill" : `${required.length} required skills`}, tracked separately.
-          {data.source && (
-            <>
-              {" "}
-              Source: {data.source.label}, PDF page{pages.length === 1 ? "" : "s"} {pages.join(", ")}.
-            </>
-          )}
-        </p>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[30px]">{data.topic.title}</h1>
+            <p className="mt-1 text-[15px] text-muted">
+              {data.rollup.total} subtopic{data.rollup.total === 1 ? "" : "s"} · {data.rollup.checked} checked on your own
+              {data.source && (
+                <>
+                  {" "}
+                  · {data.source.label}, PDF page{pages.length === 1 ? "" : "s"} {pages.join(", ")}
+                </>
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <AskButton courseId={data.course.id} />
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((o) => !o)}
+                aria-expanded={menuOpen}
+                aria-controls="study-choices"
+                data-testid="choose-study"
+                className="inline-flex min-h-11 items-center gap-2 rounded-[7px] border border-line-strong bg-card px-4 text-sm font-medium hover:border-teal hover:text-teal"
+              >
+                Choose what to study
+                <ChevronDown size={15} aria-hidden="true" className={menuOpen ? "rotate-180" : ""} />
+              </button>
+              <div
+                id="study-choices"
+                hidden={!menuOpen}
+                className="absolute right-0 top-[calc(100%+6px)] z-10 w-[min(320px,calc(100vw-2rem))] rounded-[10px] border border-line bg-card p-1.5 shadow-lg"
+              >
+                {choices.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => start(c.key)}
+                    disabled={c.disabled || starting !== null}
+                    data-testid={c.testId}
+                    className="block w-full rounded-[7px] px-3 py-2.5 text-left text-sm hover:bg-teal-soft disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="font-medium">{starting === c.key ? "Starting…" : c.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted">{c.disabled ? c.reason : c.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => go.start({ topicId })}
+              disabled={go.busy || (!data.learnAvailable && !data.reviewAvailable)}
+              data-testid="continue-topic"
+              className="inline-flex min-h-11 items-center gap-2 rounded-[7px] bg-teal px-4 text-sm font-medium text-white hover:bg-teal-dark disabled:opacity-60"
+            >
+              {go.busy ? "Starting…" : "Continue"}
+              <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
       </div>
 
       <ProviderNotice provider={data.provider} />
@@ -181,83 +245,89 @@ export function TopicScreen({ topicId }: { topicId: string }) {
           </ul>
         </Notice>
       )}
-
-      <section aria-label="Study options" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {actions.map((a, i) => (
-          <div key={a.key} className="flex flex-col gap-2 rounded-[10px] border border-line bg-card p-4">
-            <button
-              type="button"
-              onClick={() => start(a.key)}
-              disabled={a.disabled || starting !== null}
-              data-testid={a.key === "learn" ? "start-learn" : a.key === "check" ? "start-review" : "start-due-review"}
-              className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-[7px] px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
-                i === 0 ? "bg-teal text-white hover:bg-teal-dark" : "border border-line-strong bg-card text-ink hover:border-teal hover:text-teal"
-              }`}
-            >
-              <a.Icon size={16} aria-hidden="true" />
-              {starting === a.key ? "Starting…" : a.label}
-            </button>
-            <p className="text-xs text-muted">{a.disabled ? a.reason : a.hint}</p>
-          </div>
-        ))}
-      </section>
-      {actionError && <Notice tone="error">{actionError}</Notice>}
+      {(actionError || go.error) && <Notice tone={go.error ? "warn" : "error"}>{actionError ?? go.error}</Notice>}
       {!data.reviewAvailable && (
         <Notice tone="warn">
-          Independent checks are disabled until an owner-authored, reviewed question bank is attached (see the README:
+          No-help checks are disabled until an owner-authored, reviewed question bank is attached (see the README:
           <code className="mx-1">npm run questions:import</code>). Imported objectives are never mapped to demo questions.
         </Notice>
       )}
-      <p className="flex items-start gap-2 text-xs text-muted">
-        <CircleHelp size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
-        The app can&apos;t see other tabs or notes, so an independent check relies on you to declare outside help.
-        {anyFixture && " Questions here are authored fixtures that the owner has not yet reviewed."}
-      </p>
 
-      <section aria-labelledby="skills-title">
-        <h2 id="skills-title" className="mb-3 text-[17px] font-semibold tracking-tight">
-          Skills
+      <section className="rounded-xl border border-line bg-card p-5 sm:p-6" data-testid="topic-summary">
+        <RollupSummary rollup={data.rollup} subtopics={data.subtopics} />
+      </section>
+
+      <section aria-labelledby="subtopics-title">
+        <h2 id="subtopics-title" className="mb-3 text-[17px] font-semibold tracking-tight">
+          Subtopics
         </h2>
-        <ul className="space-y-3">
-          {required.map((s) => (
-            <SkillEvidenceRow key={s.id} skill={s} unit={data.units.find((u) => u.id === s.unitId)} />
+        <ul className="overflow-hidden rounded-xl border border-line bg-card">
+          {data.subtopics.map((u) => (
+            <li key={u.id} className="border-b border-line px-5 py-4 last:border-b-0" data-testid={`subtopic-${u.id}`}>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <p className="font-semibold">{u.title}</p>
+                  <p className="text-sm text-muted">{u.objective}</p>
+                  <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                    {u.sourcePages.length > 0 && <span>PDF page {u.sourcePages.join(", ")}</span>}
+                    {u.lastLabel && <span>{u.lastLabel}</span>}
+                    <span className="font-medium text-ink">{u.nextLabel}</span>
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                  {u.due && <DuePill />}
+                  <LevelPill level={u.level} />
+                  <LevelLadder level={u.level} />
+                </div>
+              </div>
+              <details className="mt-2">
+                <summary className="inline-flex min-h-8 items-center text-xs text-teal underline underline-offset-2">
+                  Skill detail
+                </summary>
+                <ul className="mt-2 space-y-2">
+                  {u.skillIds
+                    .map((id) => skillById.get(id))
+                    .filter((s): s is SkillRow => !!s)
+                    .map((s) => (
+                      <SkillEvidenceRow key={s.id} skill={s} />
+                    ))}
+                </ul>
+              </details>
+            </li>
           ))}
         </ul>
-        {optional.length > 0 && (
-          <>
-            <h3 className="mb-2 mt-5 text-sm font-semibold text-muted">Optional extensions</h3>
-            <ul className="space-y-3">
-              {optional.map((s) => (
-                <SkillEvidenceRow key={s.id} skill={s} unit={data.units.find((u) => u.id === s.unitId)} />
-              ))}
-            </ul>
-          </>
-        )}
+        <p className="mt-3 flex items-start gap-2 text-xs text-muted">
+          <CircleHelp size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+          The app can&apos;t see other tabs or notes, so a no-help check relies on you to declare outside help.
+          {anyFixture && " Questions here are authored fixtures that the owner has not yet reviewed."}
+        </p>
       </section>
 
-      <section aria-labelledby="history-title">
-        <h2 id="history-title" className="mb-3 text-[17px] font-semibold tracking-tight">
-          Evidence history
-        </h2>
-        {data.history.length === 0 ? (
-          <p className="rounded-[10px] border border-line bg-card p-4 text-sm text-muted">No answers recorded yet.</p>
-        ) : (
-          <ol className="overflow-hidden rounded-[10px] border border-line bg-card" data-testid="evidence-list">
-            {data.history.map((h) =>
-              h.kind === "help" ? (
-                <li key={h.id} className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted last:border-b-0">
-                  <FileText size={14} aria-hidden="true" />
-                  <span>{formatDateTime(h.at, TZ)}</span>
-                  <span className="font-medium text-amber-ink">{h.label}</span>
-                  <span>· support recorded for {h.skillIds.map((id) => skillById.get(id)?.objective ?? id).join("; ")}</span>
-                </li>
-              ) : (
-                <AttemptHistoryRow key={h.attemptId} row={h} objective={skillById.get(h.skillId)?.objective ?? h.skillId} onChanged={reload} />
-              ),
-            )}
-          </ol>
-        )}
-      </section>
+      <HowLevelsWork />
+
+      <details className="rounded-xl border border-line bg-card px-5 py-4">
+        <summary className="font-medium">Answer history</summary>
+        <div className="mt-3">
+          {data.history.length === 0 ? (
+            <p className="text-sm text-muted">No answers recorded yet.</p>
+          ) : (
+            <ol className="overflow-hidden rounded-[10px] border border-line" data-testid="evidence-list">
+              {data.history.map((h) =>
+                h.kind === "help" ? (
+                  <li key={h.id} className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted last:border-b-0">
+                    <FileText size={14} aria-hidden="true" />
+                    <span>{formatDateTime(h.at, TZ)}</span>
+                    <span className="font-medium text-amber-ink">{h.label}</span>
+                    <span>· help recorded for {h.skillIds.map((id) => skillById.get(id)?.objective ?? id).join("; ")}</span>
+                  </li>
+                ) : (
+                  <AttemptHistoryRow key={h.attemptId} row={h} objective={skillById.get(h.skillId)?.objective ?? h.skillId} onChanged={reload} />
+                ),
+              )}
+            </ol>
+          )}
+        </div>
+      </details>
 
       {data.course.isDemo && data.topic.id === "demo-topic-bce" && (
         <section aria-labelledby="replay-title" className="rounded-xl border border-line bg-card p-5">
@@ -276,11 +346,10 @@ export function TopicScreen({ topicId }: { topicId: string }) {
   );
 }
 
-function SkillEvidenceRow({ skill: s, unit }: { skill: SkillRow; unit?: { title: string; sourcePages: number[] } }) {
+function SkillEvidenceRow({ skill: s }: { skill: SkillRow }) {
   return (
-    <li className="rounded-[10px] border border-line bg-card p-4" data-testid={`skill-${s.id}`}>
-      {unit && <p className="text-xs text-muted">{unit.title} · PDF page {unit.sourcePages.join(", ")}</p>}
-      <div className="mt-1 flex flex-wrap items-center gap-2">
+    <li className="rounded-[10px] border border-line bg-paper/60 p-3" data-testid={`skill-${s.id}`}>
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-[15px] font-medium">{s.objective}</span>
         {s.checkInProgress ? <Pill>Check in progress</Pill> : <EvidenceLabel state={s.evidenceState} />}
         {s.reassessmentNeeded && !s.checkInProgress && (
@@ -302,7 +371,7 @@ function SkillEvidenceRow({ skill: s, unit }: { skill: SkillRow; unit?: { title:
           </dd>
         </div>
         <div>
-          <dt className="inline font-medium text-ink">Last independent check: </dt>
+          <dt className="inline font-medium text-ink">Last no-help check: </dt>
           <dd className="inline">
             {s.lastIndependentAt ? `${formatDateTime(s.lastIndependentAt, TZ)}` : "None yet"}
           </dd>

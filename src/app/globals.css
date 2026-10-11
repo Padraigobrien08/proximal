@@ -19,6 +19,13 @@
   --color-green-ink: #1f5f3f;
   --color-red-soft: #fbeceb;
   --color-red-ink: #8a2a23;
+  /* Mastery levels, Not started → Secure (src/lib/domain/levels.ts). Always paired with a text label. */
+  --color-lv0: #dfe5e1;
+  --color-lv1: #e2bf80;
+  --color-lv2: #94b3d3;
+  --color-lv3: #6aa985;
+  --color-lv4: #246a4e;
+  --color-due: #c2702a;
   --color-side: #182e24;
   --color-side-ink: #f1f6f2;
   --color-side-muted: #a9bfb0;

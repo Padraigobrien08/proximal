@@ -19,6 +19,10 @@ if (course && course.is_demo !== 1) {
   process.exit(1);
 }
 const res = db.transaction(() => {
+  // Study runs that worked through demo sessions go with them.
+  db.prepare(
+    "DELETE FROM study_runs WHERE id IN (SELECT st.run_id FROM study_run_steps st JOIN sessions s ON s.id = st.session_id WHERE s.is_demo = 1 AND s.topic_id IN (SELECT id FROM topics WHERE course_id = ?))",
+  ).run(DEMO_COURSE_ID);
   const sessions = db
     .prepare("DELETE FROM sessions WHERE is_demo = 1 AND topic_id IN (SELECT id FROM topics WHERE course_id = ?)")
     .run(DEMO_COURSE_ID).changes;

@@ -6,12 +6,15 @@ import type { UsageLimits } from "../env";
 import { logEvent } from "../logger";
 import type { LlmJob } from "./jobs";
 import {
+  OFFLINE_CHAT_MESSAGE,
   ProviderError,
   type AssessmentInput,
   type CurriculumInput,
   type LearningProvider,
   type ProviderMeta,
   type TutorInput,
+  type ChatInput,
+  type ChatReply,
 } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -186,6 +189,11 @@ export class MeteredProvider implements LearningProvider {
   }
   tutor(input: TutorInput) {
     return this.run("tutor", () => this.inner.tutor(input));
+  }
+  chat(input: ChatInput): Promise<{ reply: ChatReply; meta: ProviderMeta }> {
+    const inner = this.inner;
+    if (!inner.chat) return Promise.reject(new ProviderError(OFFLINE_CHAT_MESSAGE, "offline_unsupported", false));
+    return this.run("tutor", () => inner.chat!(input));
   }
 }
 

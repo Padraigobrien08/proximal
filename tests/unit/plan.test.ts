@@ -61,7 +61,7 @@ describe("study plan", () => {
   it("U08: the most recent unfinished session is resumed rather than duplicated, with phase-specific wording", () => {
     const base = { now: T0, budgetMinutes: 20, skills: [skill({})] };
     const checkpoint = buildStudyPlan({ ...base, activeSessions: [session({})] });
-    expect(checkpoint.recommendation).toMatchObject({ action: "resume", title: "Continue your independent check", reason: "1 of 2 answers saved", sessionId: "sess" });
+    expect(checkpoint.recommendation).toMatchObject({ action: "resume", title: "Continue your quick check", reason: "1 of 2 answers saved", sessionId: "sess" });
     const pending = buildStudyPlan({ ...base, activeSessions: [session({ phase: "results", answered: 2, pendingAssessments: 1, providerErrors: 1 })] });
     expect(pending.recommendation).toMatchObject({ title: "Your answer is saved", reason: "Assessment needs another attempt" });
     const repair = buildStudyPlan({

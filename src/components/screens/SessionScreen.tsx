@@ -10,6 +10,7 @@ import { CriterionFeedback, type FeedbackData } from "../CriterionFeedback";
 import { notifyDataChanged } from "../dataEvents";
 import { EvidenceLabel } from "../EvidenceLabel";
 import { FlagJudgementButton } from "../FlagDialog";
+import { AskButton } from "../AskButton";
 import { MathText } from "../MathText";
 import type { ProviderInfo } from "../ProviderBadge";
 import { useApiResource } from "../useApiResource";
@@ -44,6 +45,7 @@ interface Item {
   attempts: Attempt[];
   answered: boolean;
   offerAlternatives: boolean;
+  recentChatHelp: boolean;
 }
 
 interface ResultSkill {
@@ -87,9 +89,32 @@ interface SessionData {
     nextAction: { kind: "practise" | "overview"; label: string; sessionQuestionId: string | null };
   };
   explanations: Record<string, { unitTitle: string; explanation: string; workedExample: string | null }>;
-  units: { unitId: string; title: string; objective: string }[];
+  units: { unitId: string; title: string; objective: string; hasCheckedExplanation: boolean }[];
   noQuestionsAvailable: boolean;
   demoExamples: Record<string, { label: string; answer: string }[]>;
+  run: RunInfo | null;
+}
+
+interface RunInfo {
+  runId: string;
+  position: number;
+  stepNumber: number;
+  totalSteps: number;
+  totalMinutes: number;
+  current: RunStep;
+  steps: RunStep[];
+  stepDone: boolean;
+  isLast: boolean;
+}
+
+interface RunStep {
+  position: number;
+  kind: string;
+  kindLabel: string;
+  countsAs: string;
+  title: string;
+  topicTitle: string;
+  state: "done" | "left" | "current" | "upcoming" | "skipped" | "not_reached";
 }
 
 const TASK_LABEL: Record<TaskType, string> = {
@@ -126,7 +151,39 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     return () => clearInterval(t);
   }, [inFlight, reload]);
 
+  const run = data?.run ?? null;
+  const [advancing, setAdvancing] = useState(false);
+
+  /** Leave this step: the next step's session, or the summary when the run is over. */
+  async function nextStep() {
+    if (!run) return;
+    setAdvancing(true);
+    try {
+      const res = await api<{ runId: string; sessionId: string | null; done: boolean }>(`/api/runs/${run.runId}/next`, {
+        method: "POST",
+        json: { fromPosition: run.position },
+      });
+      notifyDataChanged();
+      router.push(res.sessionId && !res.done ? `/sessions/${res.sessionId}` : `/runs/${run.runId}`);
+    } catch (err) {
+      setFlash({ tone: "error", text: err instanceof ApiError ? err.message : "Could not continue." });
+      setAdvancing(false);
+    }
+  }
+
+  async function stopRun() {
+    if (!run) return;
+    try {
+      await api(`/api/runs/${run.runId}/stop`, { method: "POST", json: {} });
+      notifyDataChanged();
+      router.push(`/runs/${run.runId}`);
+    } catch (err) {
+      setFlash({ tone: "error", text: err instanceof ApiError ? err.message : "Could not end the session." });
+    }
+  }
+
   async function end(scope: "checkpoint" | "session", thenHome = false) {
+    if (run && scope === "session") return stopRun();
     try {
       const view = await api<SessionData>(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope } });
       notifyDataChanged();
@@ -162,9 +219,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   return (
     <div className="mx-auto max-w-[760px] space-y-6">
       <header className="space-y-3">
-        <Link href={`/topics/${data.topic.id}`} className="text-sm text-teal hover:underline">
-          ← {data.topic.title}
-        </Link>
+        {run ? (
+          <RunStepper run={run} />
+        ) : (
+          <Link href={`/topics/${data.topic.id}`} className="text-sm text-teal hover:underline">
+            ← {data.topic.title}
+          </Link>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -174,6 +235,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               {session.status === "ended" && <Pill>Ended</Pill>}
               {data.course.isDemo && <Pill tone="warn">Demo</Pill>}
             </div>
+            <p className="mt-1 text-sm text-muted">
+              {run ? `${run.current.title} · ${data.topic.title}` : data.topic.title} · <span>{countsAsText(session)}</span>
+            </p>
             <p className="mt-1 text-sm text-muted" data-testid="progress">
               {review
                 ? session.phase === "checkpoint"
@@ -184,7 +248,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           </div>
           {session.status === "active" && (
             <div className="flex flex-wrap gap-2">
-              {review && session.phase === "checkpoint" && (
+              {review && session.phase === "checkpoint" && !run && (
                 <button type="button" onClick={() => end("checkpoint")} className={secondaryBtn}>
                   Finish check early
                 </button>
@@ -205,10 +269,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       {review && session.phase === "checkpoint" && data.current && (
         <>
           <Notice>
-            Answer without hints or notes for an independent check. You can ask for help at any time; we&apos;ll record that support.
-            Feedback appears after all answers are saved.
+            Answer without hints or notes: that&apos;s what lets this count toward Checked. Help is still there if you need it, but the
+            answer will then count as practice. Feedback appears once every answer is saved.
           </Notice>
           <QuestionPanel
+            courseId={data.course.id}
             key={data.current.sessionQuestionId}
             sessionId={sessionId}
             item={data.current}
@@ -233,39 +298,48 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             reload();
           }}
           onReturnHome={() => end("session", true)}
+          run={run}
         />
       )}
 
-      {review && session.phase === "repair" && session.status === "active" && isFullItems(data.items) && (
+      {review && session.phase === "repair" && session.status === "active" && isFullItems(data.items) && repairItems(data).length > 0 && (
         <section className="space-y-4" aria-labelledby="repair-title">
           <h2 id="repair-title" className="text-[17px] font-semibold tracking-tight">
-            Supported practice
+            Fix the gap
           </h2>
           <p className="text-sm text-muted">
-            A correction is saved as a new practice attempt and counts as supported. Your original answer and its result stay in your
-            record, and a fresh independent check is scheduled.
+            A correction counts as practice. Your first answer and its result stay in your record, and a fresh no-help check is
+            scheduled for later.
           </p>
-          {data.items
-            .filter((i) => i.answered)
-            .map((i) => (
+          {repairItems(data).map((i) => {
+            const fixed = i.attempts.some((a) => a.phase === "repair" && a.feedback?.outcome === "pass");
+            const original = i.attempts.find((a) => a.phase === "original");
+            return (
               <QuestionPanel
+                courseId={data.course.id}
                 key={i.sessionQuestionId}
                 sessionId={sessionId}
                 item={i}
                 mode="repair"
+                completed={fixed}
+                correctionPrompt={gapPrompt(i.attempts[i.attempts.length - 1]?.feedback ?? original?.feedback ?? null)}
                 demoExamples={data.demoExamples[i.question.id] ?? []}
-                onSubmitted={(msg) => {
-                  setFlash({ tone: "good", text: msg });
+                onSubmitted={() => {
                   notifyDataChanged();
                   reload();
                 }}
                 onChanged={reload}
               />
-            ))}
+            );
+          })}
         </section>
       )}
 
-      {!review && <LearnFlow sessionId={sessionId} data={data} onChanged={reload} setFlash={setFlash} />}
+      {!review && <LearnFlow sessionId={sessionId} data={data} onChanged={reload} setFlash={setFlash} onNextStep={run ? nextStep : null} />}
+
+      {run && session.status === "active" && (
+        <RunFooter run={run} onNext={nextStep} busy={advancing} />
+      )}
 
       {session.status === "ended" && (
         <div className="flex flex-wrap gap-2">
@@ -285,18 +359,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
 function QuestionPanel({
   sessionId,
+  courseId,
   item,
   mode,
   demoExamples,
   onSubmitted,
   onChanged,
+  completed = false,
+  correctionPrompt = null,
 }: {
   sessionId: string;
+  courseId: string;
   item: Item;
   mode: "checkpoint" | "repair" | "learn";
   demoExamples: { label: string; answer: string }[];
   onSubmitted: (message: string) => void;
   onChanged: () => void;
+  /** The answer met the criteria: show the record only, no answer form. */
+  completed?: boolean;
+  /** Shown directly above the answer box when the latest answer missed something. */
+  correctionPrompt?: string | null;
 }) {
   const [answer, setAnswer] = useState("");
   const [confidence, setConfidence] = useState<"" | "low" | "medium" | "high">("");
@@ -380,6 +462,13 @@ function QuestionPanel({
         </button>
       </div>
 
+      {mode === "checkpoint" && item.recentChatHelp && (
+        <p className="rounded-lg bg-amber-soft px-3 py-2 text-sm text-amber-ink" data-testid="recent-chat-notice">
+          You asked the lecture chat about this in the last few hours, so this answer will count as practice rather than toward
+          Checked.
+        </p>
+      )}
+
       {mode !== "checkpoint" && item.attempts.length > 0 && (
         <div className="space-y-3">
           {item.attempts.map((a) => (
@@ -390,7 +479,7 @@ function QuestionPanel({
 
       {(item.revealedHints.length > 0 || item.revealedSolution || sourcePages) && (
         <div className="space-y-2 rounded-lg border border-amber-ink/20 bg-amber-soft p-3 text-sm" data-testid="help-content">
-          <p className="text-xs font-medium text-amber-ink">Support recorded for this skill in this session</p>
+          <p className="text-xs font-medium text-amber-ink">Help recorded for this skill in this session</p>
           {item.revealedHints.map((h) => (
             <p key={h.index}>
               <strong className="font-medium">{h.index === 0 ? "Cue" : "Worked step"}:</strong> <MathText text={h.text} />
@@ -413,9 +502,17 @@ function QuestionPanel({
         </div>
       )}
 
+      {!completed && (
+      <>
+      {correctionPrompt && (
+        <div className="rounded-lg bg-sky-soft px-4 py-3 text-sm text-sky-ink" data-testid="correction-prompt">
+          <p className="font-medium">Fix the gap</p>
+          <p className="mt-0.5">{correctionPrompt}</p>
+        </div>
+      )}
       <div className="space-y-3">
         <label className="block text-sm font-medium" htmlFor={`answer-${id}`}>
-          {mode === "repair" ? "Corrected answer" : "Your answer"}
+          {mode === "repair" || correctionPrompt ? "Your correction" : "Your answer"}
         </label>
         <textarea
           id={`answer-${id}`}
@@ -469,9 +566,9 @@ function QuestionPanel({
         )}
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => submit(false)} disabled={busy} className={primaryBtn} data-testid="submit-answer">
-            {busy ? "Saving answer…" : mode === "repair" ? "Submit correction" : "Submit answer"}
+            {busy ? "Saving answer…" : mode === "repair" || correctionPrompt ? "Submit correction" : "Submit answer"}
           </button>
-          {mode !== "repair" && (
+          {mode !== "repair" && !correctionPrompt && (
             <button type="button" onClick={() => submit(true)} disabled={busy} className={secondaryBtn} data-testid="dont-know">
               I don&apos;t know
             </button>
@@ -496,9 +593,9 @@ function QuestionPanel({
           <CircleHelp size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-ink" />
           <span>
             {mode === "checkpoint"
-              ? "Using help records support: your answer to this question will count as completed with support, not independent."
-              : "Help is part of practice. It is recorded, and practice answers always count as supported."}
-            {helpUsed && mode === "checkpoint" && <strong className="ml-1 font-medium text-amber-ink">Support is now recorded for this skill.</strong>}
+              ? "Using help is fine, but it is recorded: your answer to this question will then count as practice, not toward Checked."
+              : "Help is part of practice. It is recorded, and answers here always count as practice."}
+            {helpUsed && mode === "checkpoint" && <strong className="ml-1 font-medium text-amber-ink">Help is now recorded for this skill.</strong>}
           </span>
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -515,8 +612,11 @@ function QuestionPanel({
               Show worked solution
             </button>
           )}
+          <AskButton courseId={courseId} variant="help" />
         </div>
       </div>
+      </>
+      )}
     </section>
   );
 }
@@ -539,7 +639,7 @@ function AttemptBlock({ attempt, onChanged }: { attempt: Attempt; onChanged: () 
   return (
     <div className="rounded-lg border border-line p-3" data-testid={`attempt-${attempt.phase}`}>
       <p className="text-xs text-muted">
-        {attempt.phase === "original" ? "Original answer" : "Correction"} · {attempt.supportedOnly ? "supported" : "independent conditions"}
+        {attempt.phase === "original" ? "Your answer" : "Your correction"} · {attempt.supportedOnly ? "counts as practice" : "no help used"}
         {attempt.declaredAssistance ? " · outside help declared" : ""}
       </p>
       <p className="mt-1 whitespace-pre-wrap text-sm">{attempt.dontKnow ? "I don't know" : attempt.answer}</p>
@@ -570,11 +670,13 @@ function ResultsPanel({
   data,
   onChanged,
   onReturnHome,
+  run,
 }: {
   sessionId: string;
   data: SessionData;
   onChanged: (msg?: string) => void;
   onReturnHome: () => void;
+  run: RunInfo | null;
 }) {
   const router = useRouter();
   const results = data.results!;
@@ -587,7 +689,7 @@ function ResultsPanel({
     setErr(null);
     try {
       await api(`/api/sessions/${sessionId}/feedback`, { method: "POST", json: { withholdPending } });
-      onChanged("Feedback released. This is recorded as feedback for these skills.");
+      onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not release feedback.");
     } finally {
@@ -628,17 +730,26 @@ function ResultsPanel({
     el?.focus({ preventScroll: true });
   }
 
+  // Feedback is released as soon as every answer is assessed; the learner shouldn't have to ask for it.
+  const autoReleased = useRef(false);
+  useEffect(() => {
+    if (results.allAssessed && !results.feedbackReleased && !autoReleased.current) {
+      autoReleased.current = true;
+      void release(false);
+    }
+  });
+
   const active = data.session.status === "active";
   return (
     <section className="space-y-4" aria-labelledby="results-title">
       <div className="rounded-xl border border-line bg-card p-5 sm:p-6">
         <h2 id="results-title" className="text-[13px] font-medium uppercase tracking-[0.08em] text-muted">
-          Check results
+          Results
         </h2>
         <p className="mt-2 text-[19px] font-semibold leading-snug" data-testid="results-summary">
           {results.summary || "No answers were saved in this check."}
         </p>
-        {results.feedbackReleased && active && (
+        {results.feedbackReleased && active && !(run && results.nextAction.kind === "overview") && (
           <div className="mt-4 flex flex-wrap gap-2">
             {results.nextAction.kind === "practise" ? (
               <button
@@ -650,15 +761,17 @@ function ResultsPanel({
                 {results.nextAction.label}
                 <ArrowRight size={16} aria-hidden="true" />
               </button>
-            ) : (
+            ) : run ? null : (
               <button type="button" className={primaryBtn} onClick={onReturnHome} data-testid="next-action">
                 Return to overview
                 <ArrowRight size={16} aria-hidden="true" />
               </button>
             )}
-            <Link href={`/topics/${data.topic.id}`} className={secondaryBtn}>
-              View topic evidence
-            </Link>
+            {!run && (
+              <Link href={`/topics/${data.topic.id}`} className={secondaryBtn}>
+                View topic
+              </Link>
+            )}
           </div>
         )}
       </div>
@@ -690,21 +803,21 @@ function ResultsPanel({
                         ? "Not enough evidence to judge this answer. Nothing was recorded from it."
                         : s.originalOutcome === "pass"
                           ? s.originalIndependent
-                            ? "Original answer met every essential criterion independently."
-                            : "Original answer met the criteria with support."
+                            ? "Your answer met every essential criterion with no help."
+                            : "Your answer met the criteria with help."
                           : s.repaired
-                            ? "Original answer missed a step; the correction met the criteria with support."
-                            : "Original answer missed an essential step."}
+                            ? "Your first answer missed a step; your correction fixed it with help."
+                            : "Your answer missed an essential step."}
               </p>
               {s.dueWhen && (
                 <p className="mt-1 text-sm font-medium text-teal-dark" data-testid={`result-due-${s.skillId}`}>
-                  Next independent check {s.dueWhen} <span className="text-xs font-normal text-muted">({s.dueExact})</span>
+                  Next no-help check {s.dueWhen} <span className="text-xs font-normal text-muted">({s.dueExact})</span>
                 </p>
               )}
               {original?.feedback && (
                 <details className="mt-3">
                   <summary className="inline-flex min-h-9 cursor-pointer items-center text-sm text-teal underline underline-offset-2">
-                    Criterion feedback for your original answer
+                    Feedback on your answer
                   </summary>
                   <div className="mt-2 space-y-2">
                     <p className="whitespace-pre-wrap rounded-md bg-paper p-2 text-sm">{original.dontKnow ? "I don't know" : original.answer}</p>
@@ -747,9 +860,9 @@ function ResultsPanel({
 
       {!results.feedbackReleased && results.allAssessed && (
         <div className="rounded-xl border border-line bg-card p-4">
-          <p className="text-sm">All answers are assessed. Criterion-by-criterion feedback is ready.</p>
+          <p className="text-sm">{busy ? "Preparing your feedback…" : "All answers are assessed. Your feedback is ready."}</p>
           <button type="button" className={`${primaryBtn} mt-3`} onClick={() => release(false)} disabled={busy} data-testid="release-feedback">
-            Show criterion feedback
+            Show feedback
           </button>
         </div>
       )}
@@ -764,11 +877,14 @@ function LearnFlow({
   data,
   onChanged,
   setFlash,
+  onNextStep,
 }: {
   sessionId: string;
   data: SessionData;
   onChanged: () => void;
   setFlash: (f: Flash) => void;
+  /** Inside a study run, finishing moves to the next step instead of the overview. */
+  onNextStep: (() => void) | null;
 }) {
   const router = useRouter();
   const [explanation, setExplanation] = useState<{ unitId: string; explanation: string; workedExample: string | null; origin: string } | null>(null);
@@ -779,6 +895,16 @@ function LearnFlow({
   const stored = unitId ? data.explanations[unitId] : undefined;
   const shown = explanation?.unitId === unitId ? explanation : stored ? { unitId: unitId!, ...stored, origin: "checked_fixture" } : null;
   const practice = data.session.purpose === "practice";
+  const checkedExplanation = data.units.find((u) => u.unitId === unitId)?.hasCheckedExplanation ?? false;
+
+  // Learning explains first: a checked explanation opens on its own (live tutor explanations stay on request).
+  const autoExplained = useRef<string | null>(null);
+  useEffect(() => {
+    if (practice || shown || !unitId || !checkedExplanation || data.session.status !== "active") return;
+    if (autoExplained.current === unitId) return;
+    autoExplained.current = unitId;
+    void explain();
+  });
 
   async function explain() {
     if (!unitId) return;
@@ -817,6 +943,7 @@ function LearnFlow({
   }
 
   async function finish() {
+    if (onNextStep) return onNextStep();
     await api(`/api/sessions/${sessionId}/end`, { method: "POST", json: { scope: "session" } }).catch(() => undefined);
     notifyDataChanged();
     router.push("/");
@@ -848,14 +975,17 @@ function LearnFlow({
 
   if (!current) {
     return (
-      <div className="rounded-xl border border-line bg-card p-5">
-        <p className="text-[17px] font-semibold">Practice complete</p>
-        <p className="mt-1 text-sm text-muted">
-          Practice answers count as completed with support. A fresh independent check is scheduled; the overview shows when.
+      <div className="rounded-xl border border-line bg-teal-soft p-5" data-testid="step-outcome">
+        <p className="text-[17px] font-semibold">Practice done</p>
+        <p className="mt-1 text-sm">
+          Answers with help available count as practice. A fresh no-help check is scheduled for later; that&apos;s what moves a subtopic
+          to Checked.
         </p>
-        <button type="button" className={`${primaryBtn} mt-3`} onClick={finish}>
-          Return to overview
-        </button>
+        {!onNextStep && (
+          <button type="button" className={`${primaryBtn} mt-3`} onClick={finish}>
+            Return to overview
+          </button>
+        )}
       </div>
     );
   }
@@ -867,7 +997,7 @@ function LearnFlow({
     <div className="space-y-4">
       {!practice && (
         <div className="rounded-xl border border-line bg-card p-5">
-          <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">Step 1 · Objective and explanation</p>
+          <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">Read first</p>
           <h2 className="mt-1 text-[19px] font-semibold">{current.unit.title}</h2>
           <p className="text-sm">Objective: {current.unit.objective}</p>
           {!shown ? (
@@ -895,24 +1025,34 @@ function LearnFlow({
       )}
 
       <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">
-        {practice ? "Targeted practice" : "Step 2 · Practice"} ({current.ordinal + 1} of {data.progress.total}) · counts as supported
+        Practice question {current.ordinal + 1} of {data.progress.total} · help available, counts as practice
       </p>
       <QuestionPanel
+        courseId={data.course.id}
         key={current.sessionQuestionId}
         sessionId={sessionId}
         item={current}
         mode="learn"
+        completed={passed}
+        correctionPrompt={
+          latest?.feedback && !passed && !current.offerAlternatives && latest.feedback.outcome !== "uncertain" ? gapPrompt(latest.feedback) : null
+        }
         demoExamples={data.demoExamples[current.question.id] ?? []}
-        onSubmitted={(msg) => {
-          setFlash({ tone: "good", text: msg });
+        onSubmitted={() => {
+          setFlash(null);
           notifyDataChanged();
           onChanged();
         }}
         onChanged={onChanged}
       />
 
-      {latest?.feedback && !passed && !current.offerAlternatives && latest.feedback.outcome !== "uncertain" && (
-        <Notice tone="info">Read the criteria above, then try a short correction in the answer box.</Notice>
+      {passed && (
+        <div className="rounded-xl bg-teal-soft px-5 py-4 text-sm" data-testid="step-outcome">
+          <p className="font-semibold">All essential criteria met.</p>
+          <p className="mt-0.5">
+            This counts as practice for {current.unit.title}. A no-help check comes later; that&apos;s what moves it to Checked.
+          </p>
+        </div>
       )}
       {latest?.feedback && latest.feedback.outcome !== "pass" && data.provider.mode === "live" && (
         <GapTutor sessionId={sessionId} unitId={current.unit.id} attemptId={latest.id} />
@@ -935,7 +1075,7 @@ function LearnFlow({
       )}
       {(passed || current.offerAlternatives || latest?.feedback?.outcome === "uncertain") && (
         <button type="button" className={primaryBtn} onClick={next} data-testid="next-question">
-          {current.ordinal + 1 < data.progress.total ? "Next practice question" : "Finish practice"}
+          {current.ordinal + 1 < data.progress.total ? "Next question" : "Finish practice"}
         </button>
       )}
     </div>
@@ -980,3 +1120,83 @@ function GapTutor({ sessionId, unitId, attemptId }: { sessionId: string; unitId:
     </div>
   );
 }
+
+// ---------------------------------------------------------------- study run
+
+/** What this session's answers count toward, in plain words. */
+function countsAsText(session: SessionData["session"]): string {
+  if (session.mode === "review" && session.phase === "checkpoint") return "no help, counts toward Checked";
+  return "help available, counts as practice";
+}
+
+/** Checkpoint questions whose first answer missed a step: the only ones offered for correction. */
+function repairItems(data: SessionData): Item[] {
+  if (!isFullItems(data.items) || !data.results) return [];
+  const missed = new Set(
+    data.results.skills.filter((s) => !s.originalExcluded && (s.originalOutcome === "partial" || s.originalOutcome === "fail")).map((s) => s.sessionQuestionId),
+  );
+  return data.items.filter((i) => i.answered && missed.has(i.sessionQuestionId));
+}
+
+/** One plain sentence naming what the latest answer still needs. */
+function gapPrompt(feedback: FeedbackData | null): string | null {
+  if (!feedback) return null;
+  const missing = feedback.criteria.filter((c) => c.status !== "met" && c.essential).map((c) => c.description.replace(/\.$/, ""));
+  const list = missing.length ? `Still needed: ${missing.join("; ")}.` : "Look at the criteria above.";
+  return `${list} Write a short correction below. Help is available, and this counts as practice.`;
+}
+
+function RunStepper({ run }: { run: RunInfo }) {
+  const visible = run.steps.filter((s) => s.state !== "skipped");
+  return (
+    <nav aria-label="Session progress" data-testid="run-stepper">
+      <p className="mb-2 text-xs text-muted">
+        Study session · step {run.stepNumber} of {run.totalSteps} · about {run.totalMinutes} minutes
+      </p>
+      <ol className="flex gap-1.5">
+        {visible.map((s) => (
+          <li key={s.position} className="min-w-0 flex-1" aria-current={s.state === "current" ? "step" : undefined}>
+            <span
+              className={`block h-1 rounded-full ${
+                s.state === "done" ? "bg-teal" : s.state === "current" ? "bg-teal/45" : s.state === "left" ? "bg-line-strong" : "bg-line"
+              }`}
+              aria-hidden="true"
+            />
+            <span className={`mt-1.5 block truncate text-[11px] ${s.state === "current" ? "font-medium text-ink" : "text-muted"}`}>
+              {s.kindLabel}: {s.title}
+              <span className="sr-only">{s.state === "done" ? " (done)" : s.state === "current" ? " (current)" : s.state === "left" ? " (not finished)" : ""}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/** Way out of the current step: a sticky primary action once the step is done, otherwise a quiet skip at the end. */
+function RunFooter({ run, onNext, busy }: { run: RunInfo; onNext: () => void; busy: boolean }) {
+  const label = run.isLast ? "Finish session" : "Next step";
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${
+        run.stepDone ? "sticky bottom-4 z-10 border-teal/30 bg-card shadow-lg" : "border-line bg-card"
+      }`}
+      data-testid="run-footer"
+    >
+      <p className="text-sm text-muted">
+        {run.stepDone
+          ? run.isLast
+            ? "That was the last step."
+            : `Up next: ${run.steps.find((s) => s.position > run.position && s.state !== "skipped")?.kindLabel ?? ""} · ${
+                run.steps.find((s) => s.position > run.position && s.state !== "skipped")?.title ?? ""
+              }`
+          : "Answers you've saved are kept if you move on."}
+      </p>
+      <button type="button" onClick={onNext} disabled={busy} className={run.stepDone ? primaryBtn : secondaryBtn} data-testid="next-step">
+        {busy ? "Opening…" : run.stepDone ? label : run.isLast ? "Skip and finish" : "Skip this step"}
+        <ArrowRight size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
