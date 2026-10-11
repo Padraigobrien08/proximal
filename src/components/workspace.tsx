@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { lowerFirst, type ActionKind } from "@/lib/domain/plan";
+import { vendorName } from "@/lib/domain/labels";
 import type { EvidenceState } from "@/lib/domain/types";
 import { api, ApiError } from "./api";
 import { EvidenceLabel } from "./EvidenceLabel";
@@ -108,7 +109,7 @@ export function ProviderNotice({ provider }: { provider: ProviderInfo }) {
     <div data-testid="provider-badge">
       <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <Info size={15} aria-hidden="true" />
-        <span>{mock ? "Offline demo · supplied examples only." : "Claude assessment."}</span>
+        <span>{mock ? "Offline demo · supplied examples only." : `${vendorName(provider.vendor)} assessment.`}</span>
         <button
           type="button"
           aria-expanded={open}

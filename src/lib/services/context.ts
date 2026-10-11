@@ -4,6 +4,7 @@ import type { LearningProvider } from "../llm/types";
 
 export interface ProviderStatusLike {
   mode: "mock" | "live";
+  vendor?: "anthropic" | "openai" | null;
   model: string | null;
   ready: boolean;
   message: string;

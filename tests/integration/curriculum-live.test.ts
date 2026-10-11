@@ -112,6 +112,7 @@ describe("Claude adapter: generateCurriculum", () => {
     expect(res.draft).toEqual(goodDraft);
     expect(res.meta).toEqual({
       mode: "live",
+      vendor: "anthropic",
       model: "claude-test-model",
       promptVersion: CURRICULUM_PROMPT_VERSION,
       usage: { inputTokens: 1200, outputTokens: 300 },

@@ -47,6 +47,7 @@ type Usage = ProviderMeta["usage"];
 
 export class ClaudeProvider implements LearningProvider {
   readonly mode = "live" as const;
+  readonly vendor = "anthropic" as const;
   readonly model: string;
   private client: Pick<Anthropic, "messages">;
 
@@ -130,7 +131,7 @@ export class ClaudeProvider implements LearningProvider {
       8000,
     );
     // Unknown/duplicate criterion ids and quote checks are enforced server-side by validateAssessorOutput.
-    return { output: value, meta: { mode: "live", model: this.model, promptVersion: ASSESSOR_PROMPT_VERSION, usage } };
+    return { output: value, meta: { mode: "live", vendor: "anthropic", model: this.model, promptVersion: ASSESSOR_PROMPT_VERSION, usage } };
   }
 
   async generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }> {
@@ -141,14 +142,14 @@ export class ClaudeProvider implements LearningProvider {
       curriculumDraftSchema,
       16000,
     );
-    return { draft: value, meta: { mode: "live", model: this.model, promptVersion: CURRICULUM_PROMPT_VERSION, usage } };
+    return { draft: value, meta: { mode: "live", vendor: "anthropic", model: this.model, promptVersion: CURRICULUM_PROMPT_VERSION, usage } };
   }
 
   async tutor(input: TutorInput): Promise<{ explanation: string; meta: ProviderMeta }> {
     const { text, usage } = await this.call({ system: TUTOR_SYSTEM, content: tutorUserContent(input), maxTokens: 4000 });
     const explanation = text.trim().slice(0, MAX_TUTOR_CHARS);
     if (!explanation) throw new ProviderError("Tutor returned no text.", "provider_malformed", true);
-    return { explanation, meta: { mode: "live", model: this.model, promptVersion: TUTOR_PROMPT_VERSION, usage } };
+    return { explanation, meta: { mode: "live", vendor: "anthropic", model: this.model, promptVersion: TUTOR_PROMPT_VERSION, usage } };
   }
 }
 

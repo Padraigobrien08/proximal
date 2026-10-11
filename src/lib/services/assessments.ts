@@ -105,7 +105,8 @@ export async function assessAttempt(ctx: AppContext, attemptId: string): Promise
     insertAssessment(ctx.db, {
       attemptId,
       providerMode: meta.mode,
-      providerModel: meta.model,
+      // Stored as "vendor:model" so history shows which API judged the answer.
+      providerModel: meta.vendor && meta.model ? `${meta.vendor}:${meta.model}` : meta.model,
       promptVersion: meta.promptVersion,
       usage: meta.usage,
       rubricVersion: q.rubric.version,

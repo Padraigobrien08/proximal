@@ -35,8 +35,12 @@ export interface TutorInput {
   request: "explanation" | "worked_example";
 }
 
+export type LiveVendor = "anthropic" | "openai";
+
 export interface ProviderMeta {
   mode: ProviderMode;
+  /** Which live API produced the result; null for offline fixtures and rules. */
+  vendor?: LiveVendor | null;
   model: string | null;
   promptVersion: string;
   usage: { inputTokens: number; outputTokens: number } | null;
@@ -44,6 +48,7 @@ export interface ProviderMeta {
 
 export interface LearningProvider {
   readonly mode: "mock" | "live";
+  readonly vendor?: LiveVendor | null;
   readonly model: string | null;
   generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }>;
   assessAnswer(input: AssessmentInput): Promise<{ output: AssessorOutput; meta: ProviderMeta }>;

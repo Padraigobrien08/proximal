@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, LayoutDashboard, Plus, X } from "lucide-react";
+import { vendorName } from "@/lib/domain/labels";
 import { OPEN_IMPORT } from "./dataEvents";
 import { ImportPanel } from "./ImportPanel";
 import type { ProviderInfo } from "./ProviderBadge";
@@ -26,7 +27,7 @@ function section(pathname: string): string {
 export function providerShortLabel(p: ProviderInfo | undefined): string {
   if (!p) return "";
   if (p.mode === "mock") return "Offline demo · supplied examples only";
-  return p.ready ? "Claude assessment" : "Claude assessment unavailable";
+  return p.ready ? `${vendorName(p.vendor)} assessment · ${p.model}` : `${vendorName(p.vendor)} assessment unavailable`;
 }
 
 /** Shared workspace shell: sidebar navigation, breadcrumb, import dialog and compact provider status. */

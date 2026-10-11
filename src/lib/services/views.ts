@@ -2,7 +2,7 @@
 import { qualifiesAsIndependent } from "../domain/evidence";
 import type { SkillReviewState } from "../domain/types";
 import { feedbackView, feedbackVisible, summariseSession } from "./sessions";
-import { EVIDENCE_LABELS, FRESHNESS_LABELS, dueLabel, formatDateTime, freshnessOf, isApplicationTask, relativeWhen } from "../domain/labels";
+import { EVIDENCE_LABELS, FRESHNESS_LABELS, judgedByLabel, dueLabel, formatDateTime, freshnessOf, isApplicationTask, relativeWhen } from "../domain/labels";
 import { MINUTES_PER_QUESTION } from "../domain/scheduler";
 import { buildStudyPlan, taskNoun, type PlanSkill } from "../domain/plan";
 import type { QuestionPrivate } from "../domain/types";
@@ -287,7 +287,14 @@ export function getTopicView(ctx: AppContext, topicId: string) {
       assessmentId: released ? asm!.id : null,
       excluded: !!asm?.excluded && !sealed,
       excludedReason: sealed ? null : (asm?.excludedReason ?? null),
-      providerLabel: !asm || sealed ? null : asm.providerMode === "mock" ? "Offline demo fixture" : asm.providerMode === "rule" ? "Rule (I don't know)" : `Claude (${asm.providerModel})`,
+      providerLabel:
+        !asm || sealed
+          ? null
+          : asm.providerMode === "mock"
+            ? "Offline demo fixture"
+            : asm.providerMode === "rule"
+              ? "Rule (I don't know)"
+              : judgedByLabel(asm.providerModel),
       feedback: released ? feedbackView(asm!, q) : null,
     };
   });

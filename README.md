@@ -55,7 +55,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run db:migrate` | Applies pending `src/lib/db/migrations/*.sql` to `$PROXIMAL_DATA_DIR/proximal.db`. Idempotent. |
 | `npm run db:seed` | Migrates and regenerates `fixtures/sample-lecture.pdf` from `fixtures/lecture.json` (byte-deterministic; rewritten only when the bytes change). It inserts any missing demo content and updates the demo source text and checked explanations. An `authored_fixture` question is updated only when its fixture `version` increases; owner-reviewed and excluded questions are never changed, and sessions keep the frozen copy they used. Idempotent. It never touches learner records or imported uploads. |
 | `npm run demo:reset -- --yes` | Deletes sessions, attempts, exposures, assessments and review states **for the demo course only**, then re-seeds. Refuses to run without `--yes`, or if `demo-course` is not marked as a demo. Imported courses and uploads are never touched. |
-| `npm run eval:fixtures` | Evaluation harness (see below). Default `--mode mock`. |
+| `npm run eval:fixtures` | Evaluation harness (see below). Default `--mode mock`; `--mode live --yes` uses the configured provider. |
 | `npm run content:review -- --list` / `-- --question S5-A --status owner_reviewed --by "Name"` | Lists question review status, or records that a named person reviewed a question. |
 | `npm run questions:import -- --file bank.json [--course <id>]` | Attaches an owner-authored question bank (same schema as `fixtures/questions.json`) to existing skills. Inserted as `authored_fixture`. |
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
@@ -66,41 +66,51 @@ environment take precedence.
 
 ## Configuration
 
-Copy `.env.example` to `.env`:
+Copy `.env.example` to `.env` (gitignored) and choose a provider:
 
 ```dotenv
-LLM_MODE=mock                # mock | live
-ANTHROPIC_API_KEY=           # live only, server-side only
-ANTHROPIC_MODEL=             # live only; no default is ever chosen
+LLM_MODE=openai              # mock | openai | anthropic ("live" = anthropic)
+OPENAI_API_KEY=sk-...        # openai only; server-side only
+OPENAI_MODEL=                # openai only; required, never defaulted
+ANTHROPIC_API_KEY=           # anthropic only
+ANTHROPIC_MODEL=             # anthropic only; required, never defaulted
 PROXIMAL_DATA_DIR=./data     # SQLite DB + uploads (gitignored, outside public/)
 PROXIMAL_TIMEZONE=Europe/London
 ```
 
+Restart the server after editing `.env`. Keys are read only on the server and never sent to the browser.
+
 ### Provider modes
 
-The current mode is shown prominently on every screen.
+The current mode is shown on every screen (“Offline demo”, “OpenAI assessment” or “Claude assessment”, with the model under
+Details).
 
 - **mock (default)**: strictly fixture-based. An answer is assessed only if it exactly matches (after normalisation) one of the
   authored example answers for that question ID. Any other answer gets *uncertain* with "Offline demo can assess the supplied example
   answers only.", which has no effect on evidence. Curriculum generation recognises only the generated sample lecture, by its exact
   SHA-256. Any other PDF still has its text extracted and offers manual objective entry ("Offline mode cannot generate a curriculum
   for this file."). There is no tutor in mock mode; only the checked fixture explanations are shown. None of this is AI grading.
-- **live**: needs both `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`. If either is missing, the app shows "Live mode unavailable", and
-  every provider call fails visibly. It **never falls back to mock silently**. The server-only adapter (`src/lib/llm/claude.ts`):
-  - uses `@anthropic-ai/sdk` with a 60 s timeout and 1 SDK retry;
-  - requests structured JSON output (`output_config.format: json_schema`), always validated again with Zod;
-  - allows one bounded malformed-output repair turn;
-  - rejects any tool call and handles refusals and `max_tokens` cut-offs;
-  - records the provider, model, prompt version and token usage on each assessment.
+- **openai** (`src/lib/llm/openai.ts`) and **anthropic** (`src/lib/llm/claude.ts`) implement the same provider interface with the
+  same prompts and output schemas:
+  - a 60 s timeout and 1 SDK retry;
+  - schema-constrained JSON output (OpenAI Responses API `text.format` with `strict: true`; Anthropic `output_config.format`),
+    always validated again with Zod, plus one bounded repair turn;
+  - learner answers and PDF text go only in the user turn, never in the instructions; no tools are offered and any tool call is
+    rejected; refusals, content-filter stops and output-limit cut-offs are handled as provider errors;
+  - OpenAI requests are sent with `store: false`;
+  - each assessment records the vendor and model (stored as `openai:<model>` or `anthropic:<model>`), the prompt version and
+    token usage.
 
-  Live failures stay live failures. The attempt stays `provider_error` and can be retried explicitly.
+  If the selected provider's key or model is missing, the app shows “Live mode unavailable” and every provider call fails
+  visibly. It **never falls back to mock silently**. Live failures (timeouts, rate limits, quota) leave the attempt saved as
+  `provider_error` with an explicit retry.
 
 ## Architecture
 
 ```text
 src/lib/domain/       pure reducers: evidence.ts, scheduler.ts, assessment.ts, selection.ts, labels.ts (no Next/SQLite/SDK imports)
 src/lib/db/           SQL migrations, connection (foreign_keys, WAL, busy_timeout), typed repositories (parameterised SQL)
-src/lib/llm/          provider interface, mock, Claude adapter, prompts (versioned), output schemas
+src/lib/llm/          provider interface, mock, Claude and OpenAI adapters, prompts (versioned), output schemas
 src/lib/pdf/          pdfjs-dist (legacy Node build) extraction; pdf-lib sample generation
 src/lib/services/     sessions, assessments (lease + compare-and-set), evidence rebuild, imports, views, seed, replay
 src/lib/http/         route wrapper: loopback Host allow-list, same-origin mutations, {data}|{error} envelopes
@@ -241,7 +251,7 @@ are correct, partial, incorrect, ambiguous, equivalent and injection). It runs t
 - expected-uncertain cases, listed separately.
 
 - `--mode mock` is a **software check** of the offline path. Non-fixture answers are expected to abstain.
-- `--mode live --yes [--limit N]` needs live configuration, prints the number of paid calls, and refuses to run without `--yes`.
+- `--mode live --yes [--limit N]` uses whichever live provider `LLM_MODE` selects, needs its key and model, prints the number of paid calls, and refuses to run without `--yes`.
 
 The cases are authored development examples. Their labels are provisional until a person reviews them. They are not a held-out
 benchmark, and passing them is not evidence of universal grading accuracy or injection resistance.
@@ -280,9 +290,9 @@ draft edit, approval, page references and disabled review.
   counts as a valid independent fail.
 - **Checkpoint assessment runs during the submit request.** The learner still sees only "Answer saved". A provider timeout leaves
   the attempt retryable.
-- **Live Claude mode is unverified end to end.** The adapter is unit-tested with a stubbed SDK client; no request has been made
-  with real credentials. Set `LLM_MODE=live`, `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` and try one assessment, one import and one
-  tutor request before relying on it.
+- **Live providers are unverified end to end.** Both adapters are tested with stubbed SDK clients only; no request has been
+  made with real credentials. After configuring a provider, try one assessment, one import and one tutor request before relying
+  on it.
 - **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
   fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
   do not set it in normal use.

@@ -93,3 +93,21 @@ export function relativeWhen(at: number, now: number, timeZone: string): string 
   if (diff === -1) return `yesterday at ${time}`;
   return formatDateTime(at, timeZone);
 }
+
+const VENDOR_NAMES: Record<string, string> = { anthropic: "Claude", openai: "OpenAI" };
+
+/** Display name for a live provider vendor ("Claude", "OpenAI"); unknown or missing vendors read "AI". */
+export function vendorName(vendor: string | null | undefined): string {
+  return (vendor && VENDOR_NAMES[vendor]) || "AI";
+}
+
+/**
+ * Who judged an answer, from a stored provider model ("openai:gpt-x", "anthropic:claude-x").
+ * Older rows without a vendor prefix were produced by the Claude adapter.
+ */
+export function judgedByLabel(providerModel: string | null): string {
+  if (!providerModel) return "Judged by the configured AI provider";
+  const i = providerModel.indexOf(":");
+  const [vendor, model] = i > 0 ? [providerModel.slice(0, i), providerModel.slice(i + 1)] : ["anthropic", providerModel];
+  return `Judged by ${vendorName(vendor)} (${model})`;
+}

@@ -1,0 +1,223 @@
+import "server-only";
+import OpenAI from "openai";
+import { z } from "zod";
+import type { AssessorOutput } from "../domain/types";
+import {
+  ASSESSOR_PROMPT_VERSION,
+  ASSESSOR_SYSTEM,
+  assessorUserContent,
+  CURRICULUM_PROMPT_VERSION,
+  CURRICULUM_SYSTEM,
+  curriculumUserContent,
+  TUTOR_PROMPT_VERSION,
+  TUTOR_SYSTEM,
+  tutorUserContent,
+} from "./prompts";
+import { assessorJsonSchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
+import {
+  ProviderError,
+  type AssessmentInput,
+  type CurriculumDraft,
+  type CurriculumInput,
+  type LearningProvider,
+  type ProviderMeta,
+  type TutorInput,
+} from "./types";
+
+export const OPENAI_TIMEOUT_MS = 60_000;
+/** SDK retries cover 408/409/429/5xx and connection errors. Kept low so a learner is not left waiting. */
+export const OPENAI_MAX_RETRIES = 1;
+const MAX_TUTOR_CHARS = 3000;
+
+export interface OpenAIProviderOptions {
+  apiKey: string;
+  model: string;
+  timeoutMs?: number;
+  maxRetries?: number;
+  /** Injected for tests. */
+  client?: Pick<OpenAI, "responses">;
+}
+
+type Usage = ProviderMeta["usage"];
+type InputMessage = { role: "user" | "assistant"; content: string };
+
+/**
+ * OpenAI adapter over the Responses API. Same contract as the Claude adapter: instructions carry the role,
+ * learner/document text is user-turn data, output is schema-constrained and re-validated with Zod, one bounded
+ * repair turn, no tools offered, and nothing is stored on OpenAI's side (`store: false`).
+ */
+export class OpenAIProvider implements LearningProvider {
+  readonly mode = "live" as const;
+  readonly vendor = "openai" as const;
+  readonly model: string;
+  private client: Pick<OpenAI, "responses">;
+
+  constructor(opts: OpenAIProviderOptions) {
+    this.model = opts.model;
+    this.client =
+      opts.client ??
+      new OpenAI({
+        apiKey: opts.apiKey,
+        timeout: opts.timeoutMs ?? OPENAI_TIMEOUT_MS,
+        maxRetries: opts.maxRetries ?? OPENAI_MAX_RETRIES,
+      });
+  }
+
+  private async call(params: {
+    instructions: string;
+    input: InputMessage[];
+    maxTokens: number;
+    schema?: { name: string; schema: Record<string, unknown> };
+  }): Promise<{ text: string; usage: Usage }> {
+    let res: OpenAI.Responses.Response;
+    try {
+      res = await this.client.responses.create({
+        model: this.model,
+        instructions: params.instructions,
+        input: params.input,
+        max_output_tokens: params.maxTokens,
+        store: false,
+        ...(params.schema
+          ? { text: { format: { type: "json_schema", name: params.schema.name, schema: params.schema.schema, strict: true } } }
+          : {}),
+      });
+    } catch (err) {
+      throw mapOpenAIError(err);
+    }
+
+    // No tools are offered; any tool or function call (e.g. a request to write application state) is rejected.
+    if (res.output.some((item) => item.type !== "message" && item.type !== "reasoning")) {
+      throw new ProviderError("Model attempted a tool call; rejected.", "provider_malformed", true);
+    }
+    const parts = res.output.flatMap((item) => (item.type === "message" ? item.content : []));
+    if (parts.some((p) => p.type === "refusal")) {
+      throw new ProviderError("The model declined this request.", "provider_refusal", false);
+    }
+    if (res.status === "incomplete") {
+      if (res.incomplete_details?.reason === "content_filter") {
+        throw new ProviderError("The provider's content filter stopped this response.", "provider_refusal", false);
+      }
+      throw new ProviderError("Model output was cut off at the output limit.", "provider_malformed", true);
+    }
+    if (res.status === "failed" || res.error) {
+      throw new ProviderError(`The provider reported a failed response: ${res.error?.message ?? "unknown error"}`, "provider_unavailable", true);
+    }
+    const text = parts
+      .filter((p): p is OpenAI.Responses.ResponseOutputText => p.type === "output_text")
+      .map((p) => p.text)
+      .join("");
+    return {
+      text,
+      usage: res.usage ? { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens } : null,
+    };
+  }
+
+  /** Parse + validate JSON; one bounded repair turn is permitted (never by changing the rubric). */
+  private async structured<T>(
+    instructions: string,
+    content: string,
+    schema: { name: string; schema: Record<string, unknown> },
+    zodSchema: z.ZodType<T>,
+    maxTokens: number,
+  ): Promise<{ value: T; usage: Usage }> {
+    const first = await this.call({ instructions, input: [{ role: "user", content }], maxTokens, schema });
+    const parsed = safeParse(first.text, zodSchema);
+    if (parsed.ok) return { value: parsed.value, usage: first.usage };
+    const repair = await this.call({
+      instructions,
+      input: [
+        { role: "user", content },
+        { role: "assistant", content: first.text.slice(0, 8000) || "{}" },
+        {
+          role: "user",
+          content: `Your previous output did not match the required schema: ${parsed.error.slice(0, 500)}\nReturn the corrected structured output only.`,
+        },
+      ],
+      maxTokens,
+      schema,
+    });
+    const second = safeParse(repair.text, zodSchema);
+    if (!second.ok) throw new ProviderError(`Model output failed validation after one repair: ${second.error}`, "provider_malformed", true);
+    return { value: second.value, usage: sumUsage(first.usage, repair.usage) };
+  }
+
+  async assessAnswer(input: AssessmentInput): Promise<{ output: AssessorOutput; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      ASSESSOR_SYSTEM,
+      assessorUserContent(input),
+      { name: "assessor_output", schema: assessorJsonSchema(input.rubric) },
+      looseAssessorOutputSchema,
+      8000,
+    );
+    // Unknown/duplicate criterion ids and quote checks are enforced server-side by validateAssessorOutput.
+    return { output: value, meta: this.meta(ASSESSOR_PROMPT_VERSION, usage) };
+  }
+
+  async generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      CURRICULUM_SYSTEM,
+      curriculumUserContent(input),
+      { name: "curriculum_draft", schema: curriculumJsonSchema },
+      curriculumDraftSchema,
+      16000,
+    );
+    return { draft: value, meta: this.meta(CURRICULUM_PROMPT_VERSION, usage) };
+  }
+
+  async tutor(input: TutorInput): Promise<{ explanation: string; meta: ProviderMeta }> {
+    const { text, usage } = await this.call({
+      instructions: TUTOR_SYSTEM,
+      input: [{ role: "user", content: tutorUserContent(input) }],
+      maxTokens: 4000,
+    });
+    const explanation = text.trim().slice(0, MAX_TUTOR_CHARS);
+    if (!explanation) throw new ProviderError("Tutor returned no text.", "provider_malformed", true);
+    return { explanation, meta: this.meta(TUTOR_PROMPT_VERSION, usage) };
+  }
+
+  private meta(promptVersion: string, usage: Usage): ProviderMeta {
+    return { mode: "live", vendor: "openai", model: this.model, promptVersion, usage };
+  }
+}
+
+function safeParse<T>(text: string, schema: z.ZodType<T>): { ok: true; value: T } | { ok: false; error: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "output was not valid JSON" };
+  }
+  const r = schema.safeParse(raw);
+  return r.success ? { ok: true, value: r.data } : { ok: false, error: r.error.message };
+}
+
+function sumUsage(a: Usage, b: Usage): Usage {
+  if (!a || !b) return a ?? b;
+  return { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens };
+}
+
+export function mapOpenAIError(err: unknown): ProviderError {
+  if (err instanceof ProviderError) return err;
+  if (err instanceof OpenAI.APIConnectionTimeoutError) {
+    return new ProviderError("The live assessor timed out. Your answer is saved; you can retry.", "provider_timeout", true);
+  }
+  if (err instanceof OpenAI.AuthenticationError || err instanceof OpenAI.PermissionDeniedError) {
+    return new ProviderError("OpenAI rejected the configured API key.", "provider_unavailable", false);
+  }
+  if (err instanceof OpenAI.NotFoundError) {
+    return new ProviderError("The configured OPENAI_MODEL was not found for this API key.", "provider_unavailable", false);
+  }
+  if (err instanceof OpenAI.BadRequestError) {
+    return new ProviderError(`OpenAI rejected the request: ${err.message.slice(0, 200)}`, "provider_unavailable", false);
+  }
+  if (err instanceof OpenAI.RateLimitError) {
+    return new ProviderError("OpenAI rate limit or quota reached. Your answer is saved; you can retry.", "provider_unavailable", true);
+  }
+  if (err instanceof OpenAI.InternalServerError) {
+    return new ProviderError("OpenAI is unavailable. Your answer is saved; you can retry.", "provider_unavailable", true);
+  }
+  if (err instanceof OpenAI.APIConnectionError) {
+    return new ProviderError("Could not reach OpenAI. Your answer is saved; you can retry.", "provider_unavailable", true);
+  }
+  return new ProviderError("Unexpected OpenAI error.", "provider_unavailable", true);
+}

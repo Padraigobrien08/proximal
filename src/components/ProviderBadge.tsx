@@ -1,7 +1,10 @@
 "use client";
 
+import { vendorName } from "@/lib/domain/labels";
+
 export interface ProviderInfo {
   mode: "mock" | "live";
+  vendor?: "anthropic" | "openai" | null;
   model: string | null;
   ready: boolean;
   message: string;
@@ -27,7 +30,7 @@ export function ProviderBadge({ provider }: { provider: ProviderInfo }) {
   }
   return (
     <div data-testid="provider-badge" className="rounded-lg border border-teal/25 bg-teal-soft px-4 py-2 text-sm text-teal-dark">
-      <strong>Live Claude mode</strong> ({provider.model}). AI judgements are checked against the rubric server-side and can be flagged.
+      <strong>Live {vendorName(provider.vendor)} mode</strong> ({provider.model}). AI judgements are checked against the rubric server-side and can be flagged.
     </div>
   );
 }

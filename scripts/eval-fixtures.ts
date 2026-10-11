@@ -1,5 +1,5 @@
 // Fixture evaluation harness. `--mode mock` (default) is a software check of the offline path, not a model evaluation.
-// `--mode live` requires LLM_MODE=live with ANTHROPIC_API_KEY and ANTHROPIC_MODEL configured, and spends API credits.
+// `--mode live` uses the configured live provider (LLM_MODE=anthropic|openai with its key and model) and spends API credits.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -9,8 +9,7 @@ import { runMigrations } from "../src/lib/db/migrate";
 import { aggregateOutcome } from "../src/lib/domain/assessment";
 import type { AttemptOutcome } from "../src/lib/domain/types";
 import { readEnv } from "../src/lib/env";
-import { ClaudeProvider } from "../src/lib/llm/claude";
-import { createMockProvider } from "../src/lib/llm/factory";
+import { createLiveProvider, createMockProvider } from "../src/lib/llm/factory";
 import type { LearningProvider } from "../src/lib/llm/types";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, flag, loadDotEnv } from "./_lib";
@@ -43,16 +42,23 @@ const bank = loadFixtures().bank;
 
 let provider: LearningProvider;
 if (mode === "live") {
-  const env = readEnv();
-  if (env.LLM_MODE !== "live" || !env.ANTHROPIC_API_KEY || !env.ANTHROPIC_MODEL) {
-    console.error("Live evaluation requires LLM_MODE=live, ANTHROPIC_API_KEY and ANTHROPIC_MODEL. Nothing was run.");
+  let env;
+  try {
+    env = readEnv();
+  } catch (err) {
+    console.error(`Live evaluation needs a configured live provider: ${(err as Error).message} Nothing was run.`);
     process.exit(1);
   }
+  if (env.LLM_MODE === "mock") {
+    console.error("Live evaluation requires LLM_MODE=anthropic or LLM_MODE=openai with that provider's key and model. Nothing was run.");
+    process.exit(1);
+  }
+  const live = createLiveProvider(env);
   if (!flag("yes")) {
-    console.error(`Live evaluation will make ${cases.length} paid API calls to ${env.ANTHROPIC_MODEL}. Re-run with --yes to proceed (use --limit N to run fewer).`);
+    console.error(`Live evaluation will make ${cases.length} paid API calls to ${live.vendor}:${live.model}. Re-run with --yes to proceed (use --limit N to run fewer).`);
     process.exit(1);
   }
-  provider = new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL });
+  provider = live;
 } else {
   provider = createMockProvider(db);
 }
@@ -107,7 +113,7 @@ const report = {
     mode === "mock"
       ? "Software check of the offline fixture path (exact-match demo answers only). Not an evaluation of AI grading."
       : "Live provider run on authored development cases. Not a held-out benchmark; labels are provisional until reviewed by a person.",
-  provider: { mode, model: provider.model },
+  provider: { mode, vendor: provider.vendor ?? null, model: provider.model },
   casesFile: path.relative(process.cwd(), casesFile),
   generatedAt: new Date().toISOString(),
   counts: {
@@ -135,7 +141,7 @@ mkdirSync("reports", { recursive: true });
 const out = path.join("reports", `eval-${mode}-${report.generatedAt.replace(/[:.]/g, "-")}.json`);
 writeFileSync(out, JSON.stringify(report, null, 2));
 console.log(report.label);
-console.log(`Provider: ${mode}${provider.model ? ` (${provider.model})` : ""}`);
+console.log(`Provider: ${mode}${provider.model ? ` (${provider.vendor}:${provider.model})` : ""}`);
 console.log(`Cases: ${cases.length} · exact matches: ${exactMatches} · abstentions: ${predictedUncertain} · provider errors: ${providerErrors}`);
 console.log(`Decision coverage on definite cases: ${definiteDecided}/${definiteExpected.length}`);
 console.log(`False promotions: ${falsePromotions} of ${definiteNonPass.length} definite partial/fail cases`);

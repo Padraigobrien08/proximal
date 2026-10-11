@@ -2,15 +2,19 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import type Database from "better-sqlite3";
+import { z } from "zod";
 import { SAMPLE_PDF_PATH, loadFixtures } from "../content/fixtures";
 import type { ExampleFixture } from "../content/schemas";
-import { readEnv } from "../env";
+import { readEnv, requestedVendor, type AppEnv } from "../env";
 import { ClaudeProvider } from "./claude";
+import { OpenAIProvider } from "./openai";
 import { MockProvider } from "./mock";
-import { ProviderError, type CurriculumDraft, type LearningProvider } from "./types";
+import { ProviderError, type CurriculumDraft, type LearningProvider, type LiveVendor } from "./types";
 
 export interface ProviderStatus {
   mode: "mock" | "live";
+  /** Live API in use (or requested, when misconfigured). */
+  vendor: LiveVendor | null;
   model: string | null;
   ready: boolean;
   message: string;
@@ -20,7 +24,10 @@ export interface ProviderStatus {
 class UnavailableProvider implements LearningProvider {
   readonly mode = "live" as const;
   readonly model = null;
-  constructor(private reason: string) {}
+  constructor(
+    private reason: string,
+    readonly vendor: LiveVendor | null,
+  ) {}
   private fail(): never {
     throw new ProviderError(this.reason, "provider_unavailable", false);
   }
@@ -89,27 +96,45 @@ export function createMockProvider(db: Database.Database): MockProvider {
   return provider;
 }
 
+export const VENDOR_LABEL: Record<LiveVendor, string> = { anthropic: "Claude", openai: "OpenAI" };
+
+/** The configured live provider. Callers must already have checked LLM_MODE is a live vendor. */
+export function createLiveProvider(env: AppEnv): LearningProvider & { vendor: LiveVendor; model: string } {
+  if (env.LLM_MODE === "openai") return new OpenAIProvider({ apiKey: env.OPENAI_API_KEY!, model: env.OPENAI_MODEL! });
+  return new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY!, model: env.ANTHROPIC_MODEL! });
+}
+
 export function createProvider(db: Database.Database): { provider: LearningProvider; status: ProviderStatus } {
   let env;
   try {
     env = readEnv();
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Invalid environment.";
+    const message =
+      err instanceof z.ZodError ? err.issues.map((i) => i.message).join(" ") : err instanceof Error ? err.message : "Invalid environment.";
+    const vendor = requestedVendor();
     return {
-      provider: new UnavailableProvider(message),
-      status: { mode: "live", model: null, ready: false, message: `Live mode is not configured: ${message}` },
+      provider: new UnavailableProvider(message, vendor),
+      status: { mode: "live", vendor, model: null, ready: false, message: `Live mode is not configured: ${message}` },
     };
   }
-  if (env.LLM_MODE === "live") {
+  if (env.LLM_MODE !== "mock") {
+    const provider = createLiveProvider(env);
     return {
-      provider: new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY!, model: env.ANTHROPIC_MODEL! }),
-      status: { mode: "live", model: env.ANTHROPIC_MODEL!, ready: true, message: `Live Claude (${env.ANTHROPIC_MODEL})` },
+      provider,
+      status: {
+        mode: "live",
+        vendor: provider.vendor,
+        model: provider.model,
+        ready: true,
+        message: `Live ${VENDOR_LABEL[provider.vendor]} (${provider.model})`,
+      },
     };
   }
   return {
     provider: createMockProvider(db),
     status: {
       mode: "mock",
+      vendor: null,
       model: null,
       ready: true,
       message: "Offline demo: fixture answers only, no AI grading",

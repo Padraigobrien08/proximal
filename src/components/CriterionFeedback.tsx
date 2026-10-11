@@ -1,5 +1,6 @@
 "use client";
 
+import { judgedByLabel } from "@/lib/domain/labels";
 import { Pill } from "./ui";
 
 export interface FeedbackData {
@@ -42,7 +43,7 @@ export const OUTCOME_TEXT: Record<FeedbackData["outcome"], string> = {
 export function providerLabel(f: Pick<FeedbackData, "providerMode" | "providerModel">): string {
   if (f.providerMode === "mock") return "Judged against offline demo fixtures";
   if (f.providerMode === "rule") return "Recorded as an explicit “I don’t know”";
-  return `Judged by Claude (${f.providerModel ?? "configured model"})`;
+  return judgedByLabel(f.providerModel);
 }
 
 /** Released criterion-by-criterion feedback for one assessed answer. */
