@@ -5,6 +5,7 @@ import { vendorName } from "@/lib/domain/labels";
 export interface ProviderInfo {
   mode: "mock" | "live";
   vendor?: "anthropic" | "openai" | null;
+  models?: { assess: string; curriculum: string; tutor: string } | null;
   model: string | null;
   ready: boolean;
   message: string;

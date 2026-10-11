@@ -6,6 +6,7 @@ export interface ProviderStatusLike {
   mode: "mock" | "live";
   vendor?: "anthropic" | "openai" | null;
   model: string | null;
+  models?: { assess: string; curriculum: string; tutor: string } | null;
   ready: boolean;
   message: string;
 }

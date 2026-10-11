@@ -49,7 +49,10 @@ export interface ProviderMeta {
 export interface LearningProvider {
   readonly mode: "mock" | "live";
   readonly vendor?: LiveVendor | null;
+  /** Assessment model (live) or null. */
   readonly model: string | null;
+  /** Model per job (live only). */
+  readonly models?: import("./jobs").JobModels;
   generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }>;
   assessAnswer(input: AssessmentInput): Promise<{ output: AssessorOutput; meta: ProviderMeta }>;
   tutor(input: TutorInput): Promise<{ explanation: string; meta: ProviderMeta }>;

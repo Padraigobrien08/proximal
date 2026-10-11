@@ -13,6 +13,7 @@ import {
   TUTOR_SYSTEM,
   tutorUserContent,
 } from "./prompts";
+import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import { assessorJsonSchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
 import {
   ProviderError,
@@ -31,7 +32,10 @@ const MAX_TUTOR_CHARS = 3000;
 
 export interface OpenAIProviderOptions {
   apiKey: string;
-  model: string;
+  /** Per-job models and limits. */
+  jobs?: JobConfigs;
+  /** Shorthand: one model for every job (tests, simple setups). */
+  model?: string;
   timeoutMs?: number;
   maxRetries?: number;
   /** Injected for tests. */
@@ -49,11 +53,17 @@ type InputMessage = { role: "user" | "assistant"; content: string };
 export class OpenAIProvider implements LearningProvider {
   readonly mode = "live" as const;
   readonly vendor = "openai" as const;
+  /** Assessment model (the job that produces evidence); see `models` for every job. */
   readonly model: string;
+  readonly models: JobModels;
+  private jobs: JobConfigs;
   private client: Pick<OpenAI, "responses">;
 
   constructor(opts: OpenAIProviderOptions) {
-    this.model = opts.model;
+    if (!opts.jobs && !opts.model) throw new Error("OpenAIProvider needs jobs or a model.");
+    this.jobs = opts.jobs ?? uniformJobs(opts.model!);
+    this.models = jobModels(this.jobs);
+    this.model = this.jobs.assess.model;
     this.client =
       opts.client ??
       new OpenAI({
@@ -64,23 +74,28 @@ export class OpenAIProvider implements LearningProvider {
   }
 
   private async call(params: {
+    job: LlmJob;
     instructions: string;
     input: InputMessage[];
-    maxTokens: number;
     schema?: { name: string; schema: Record<string, unknown> };
   }): Promise<{ text: string; usage: Usage }> {
+    const cfg = this.jobs[params.job];
     let res: OpenAI.Responses.Response;
     try {
-      res = await this.client.responses.create({
-        model: this.model,
-        instructions: params.instructions,
-        input: params.input,
-        max_output_tokens: params.maxTokens,
-        store: false,
-        ...(params.schema
-          ? { text: { format: { type: "json_schema", name: params.schema.name, schema: params.schema.schema, strict: true } } }
-          : {}),
-      });
+      res = await this.client.responses.create(
+        {
+          model: cfg.model,
+          instructions: params.instructions,
+          input: params.input,
+          max_output_tokens: cfg.maxOutputTokens,
+          store: false,
+          ...(cfg.effort ? { reasoning: { effort: cfg.effort as OpenAI.ReasoningEffort } } : {}),
+          ...(params.schema
+            ? { text: { format: { type: "json_schema", name: params.schema.name, schema: params.schema.schema, strict: true } } }
+            : {}),
+        },
+        { timeout: cfg.timeoutMs },
+      );
     } catch (err) {
       throw mapOpenAIError(err);
     }
@@ -114,16 +129,17 @@ export class OpenAIProvider implements LearningProvider {
 
   /** Parse + validate JSON; one bounded repair turn is permitted (never by changing the rubric). */
   private async structured<T>(
+    job: LlmJob,
     instructions: string,
     content: string,
     schema: { name: string; schema: Record<string, unknown> },
     zodSchema: z.ZodType<T>,
-    maxTokens: number,
   ): Promise<{ value: T; usage: Usage }> {
-    const first = await this.call({ instructions, input: [{ role: "user", content }], maxTokens, schema });
+    const first = await this.call({ job, instructions, input: [{ role: "user", content }], schema });
     const parsed = safeParse(first.text, zodSchema);
     if (parsed.ok) return { value: parsed.value, usage: first.usage };
     const repair = await this.call({
+      job,
       instructions,
       input: [
         { role: "user", content },
@@ -133,7 +149,6 @@ export class OpenAIProvider implements LearningProvider {
           content: `Your previous output did not match the required schema: ${parsed.error.slice(0, 500)}\nReturn the corrected structured output only.`,
         },
       ],
-      maxTokens,
       schema,
     });
     const second = safeParse(repair.text, zodSchema);
@@ -143,40 +158,41 @@ export class OpenAIProvider implements LearningProvider {
 
   async assessAnswer(input: AssessmentInput): Promise<{ output: AssessorOutput; meta: ProviderMeta }> {
     const { value, usage } = await this.structured(
+      "assess",
       ASSESSOR_SYSTEM,
       assessorUserContent(input),
       { name: "assessor_output", schema: assessorJsonSchema(input.rubric) },
       looseAssessorOutputSchema,
-      8000,
     );
     // Unknown/duplicate criterion ids and quote checks are enforced server-side by validateAssessorOutput.
-    return { output: value, meta: this.meta(ASSESSOR_PROMPT_VERSION, usage) };
+    return { output: value, meta: this.meta("assess", ASSESSOR_PROMPT_VERSION, usage) };
   }
 
   async generateCurriculum(input: CurriculumInput): Promise<{ draft: CurriculumDraft; meta: ProviderMeta }> {
     const { value, usage } = await this.structured(
+      "curriculum",
       CURRICULUM_SYSTEM,
       curriculumUserContent(input),
       { name: "curriculum_draft", schema: curriculumJsonSchema },
       curriculumDraftSchema,
-      16000,
     );
-    return { draft: value, meta: this.meta(CURRICULUM_PROMPT_VERSION, usage) };
+    return { draft: value, meta: this.meta("curriculum", CURRICULUM_PROMPT_VERSION, usage) };
   }
 
   async tutor(input: TutorInput): Promise<{ explanation: string; meta: ProviderMeta }> {
     const { text, usage } = await this.call({
+      job: "tutor",
       instructions: TUTOR_SYSTEM,
       input: [{ role: "user", content: tutorUserContent(input) }],
-      maxTokens: 4000,
     });
     const explanation = text.trim().slice(0, MAX_TUTOR_CHARS);
     if (!explanation) throw new ProviderError("Tutor returned no text.", "provider_malformed", true);
-    return { explanation, meta: this.meta(TUTOR_PROMPT_VERSION, usage) };
+    return { explanation, meta: this.meta("tutor", TUTOR_PROMPT_VERSION, usage) };
   }
 
-  private meta(promptVersion: string, usage: Usage): ProviderMeta {
-    return { mode: "live", vendor: "openai", model: this.model, promptVersion, usage };
+  /** Records the model that actually ran this job. */
+  private meta(job: LlmJob, promptVersion: string, usage: Usage): ProviderMeta {
+    return { mode: "live", vendor: "openai", model: this.jobs[job].model, promptVersion, usage };
   }
 }
 

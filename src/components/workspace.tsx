@@ -120,11 +120,28 @@ export function ProviderNotice({ provider }: { provider: ProviderInfo }) {
           Details
         </button>
       </p>
-      <p id="provider-detail" hidden={!open} className="mt-2.5 rounded-[7px] bg-amber-soft px-4 py-3 text-xs text-amber-ink">
-        {mock
-          ? "Only the supplied example answers can be assessed in this mode. Other answers are marked uncertain."
-          : `Answers are judged by ${provider.model} against frozen rubrics. Judgements are checked on the server, can be uncertain and can be flagged. A live failure never falls back to the offline demo.`}
-      </p>
+      <div id="provider-detail" hidden={!open} className="mt-2.5 rounded-[7px] bg-amber-soft px-4 py-3 text-xs text-amber-ink">
+        {mock ? (
+          "Only the supplied example answers can be assessed in this mode. Other answers are marked uncertain."
+        ) : (
+          <>
+            <p>
+              Judgements are checked against frozen rubrics on the server, can be uncertain and can be flagged. A live failure never
+              falls back to the offline demo.
+            </p>
+            {provider.models && (
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5" data-testid="provider-models">
+                <dt className="font-medium">Assessment</dt>
+                <dd>{provider.models.assess}</dd>
+                <dt className="font-medium">Curriculum</dt>
+                <dd>{provider.models.curriculum}</dd>
+                <dt className="font-medium">Tutor</dt>
+                <dd>{provider.models.tutor}</dd>
+              </dl>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

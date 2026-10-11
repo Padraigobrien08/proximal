@@ -113,7 +113,8 @@ const report = {
     mode === "mock"
       ? "Software check of the offline fixture path (exact-match demo answers only). Not an evaluation of AI grading."
       : "Live provider run on authored development cases. Not a held-out benchmark; labels are provisional until reviewed by a person.",
-  provider: { mode, vendor: provider.vendor ?? null, model: provider.model },
+  // The eval exercises the assessment job; all job models are recorded for context.
+  provider: { mode, vendor: provider.vendor ?? null, assessModel: provider.model, models: provider.models ?? null },
   casesFile: path.relative(process.cwd(), casesFile),
   generatedAt: new Date().toISOString(),
   counts: {

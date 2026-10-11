@@ -7,6 +7,7 @@ import { SAMPLE_PDF_PATH, loadFixtures } from "../content/fixtures";
 import type { ExampleFixture } from "../content/schemas";
 import { readEnv, requestedVendor, type AppEnv } from "../env";
 import { ClaudeProvider } from "./claude";
+import { JOB_LABEL, LLM_JOBS, type JobModels } from "./jobs";
 import { OpenAIProvider } from "./openai";
 import { MockProvider } from "./mock";
 import { ProviderError, type CurriculumDraft, type LearningProvider, type LiveVendor } from "./types";
@@ -15,7 +16,10 @@ export interface ProviderStatus {
   mode: "mock" | "live";
   /** Live API in use (or requested, when misconfigured). */
   vendor: LiveVendor | null;
+  /** Assessment model. */
   model: string | null;
+  /** Model per job (live and configured only). */
+  models: JobModels | null;
   ready: boolean;
   message: string;
 }
@@ -99,9 +103,10 @@ export function createMockProvider(db: Database.Database): MockProvider {
 export const VENDOR_LABEL: Record<LiveVendor, string> = { anthropic: "Claude", openai: "OpenAI" };
 
 /** The configured live provider. Callers must already have checked LLM_MODE is a live vendor. */
-export function createLiveProvider(env: AppEnv): LearningProvider & { vendor: LiveVendor; model: string } {
-  if (env.LLM_MODE === "openai") return new OpenAIProvider({ apiKey: env.OPENAI_API_KEY!, model: env.OPENAI_MODEL! });
-  return new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY!, model: env.ANTHROPIC_MODEL! });
+export function createLiveProvider(env: AppEnv): LearningProvider & { vendor: LiveVendor; model: string; models: JobModels } {
+  if (!env.jobs) throw new Error("No live jobs configured.");
+  if (env.LLM_MODE === "openai") return new OpenAIProvider({ apiKey: env.OPENAI_API_KEY!, jobs: env.jobs });
+  return new ClaudeProvider({ apiKey: env.ANTHROPIC_API_KEY!, jobs: env.jobs });
 }
 
 export function createProvider(db: Database.Database): { provider: LearningProvider; status: ProviderStatus } {
@@ -110,11 +115,15 @@ export function createProvider(db: Database.Database): { provider: LearningProvi
     env = readEnv();
   } catch (err) {
     const message =
-      err instanceof z.ZodError ? err.issues.map((i) => i.message).join(" ") : err instanceof Error ? err.message : "Invalid environment.";
+      err instanceof z.ZodError
+        ? err.issues.map((i) => i.message).join(" ")
+        : err instanceof Error
+          ? err.message
+          : "Invalid environment.";
     const vendor = requestedVendor();
     return {
       provider: new UnavailableProvider(message, vendor),
-      status: { mode: "live", vendor, model: null, ready: false, message: `Live mode is not configured: ${message}` },
+      status: { mode: "live", vendor, model: null, models: null, ready: false, message: `Live mode is not configured: ${message}` },
     };
   }
   if (env.LLM_MODE !== "mock") {
@@ -125,8 +134,9 @@ export function createProvider(db: Database.Database): { provider: LearningProvi
         mode: "live",
         vendor: provider.vendor,
         model: provider.model,
+        models: provider.models,
         ready: true,
-        message: `Live ${VENDOR_LABEL[provider.vendor]} (${provider.model})`,
+        message: `Live ${VENDOR_LABEL[provider.vendor]}: ${LLM_JOBS.map((j) => `${JOB_LABEL[j].toLowerCase()} ${provider.models[j]}`).join(", ")}`,
       },
     };
   }
@@ -136,6 +146,7 @@ export function createProvider(db: Database.Database): { provider: LearningProvi
       mode: "mock",
       vendor: null,
       model: null,
+      models: null,
       ready: true,
       message: "Offline demo: fixture answers only, no AI grading",
     },

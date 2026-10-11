@@ -80,6 +80,22 @@ PROXIMAL_TIMEZONE=Europe/London
 
 Restart the server after editing `.env`. Keys are read only on the server and never sent to the browser.
 
+#### One model per job
+
+There are three model jobs, and each can use a different model:
+
+| Job | Override | Runs | Limits |
+| --- | --- | --- | --- |
+| Assessment: grading answers against frozen rubrics | `OPENAI_MODEL_ASSESS` | Every submitted answer | 60 s, 8,000 output tokens |
+| Curriculum: drafting topics and objectives from a PDF | `OPENAI_MODEL_CURRICULUM` | Once per import | 180 s, 16,000 output tokens |
+| Tutor: short source-grounded gap explanations | `OPENAI_MODEL_TUTOR` | On request during practice | 30 s, 4,000 output tokens |
+
+`OPENAI_MODEL` is the default for any job without an override. Every job must resolve to a model, and none is ever chosen
+for you. Optional `OPENAI_EFFORT_<JOB>` sets reasoning effort for that job only; it is not sent unless set, because some models
+reject it. The `ANTHROPIC_*` variables follow the same pattern. The provider Details panel lists the model used for each job,
+and every assessment records the exact model that graded it (`vendor:model`). To compare grading models, run
+`npm run eval:fixtures -- --mode live --yes` once per candidate `OPENAI_MODEL_ASSESS`.
+
 ### Provider modes
 
 The current mode is shown on every screen (“Offline demo”, “OpenAI assessment” or “Claude assessment”, with the model under
