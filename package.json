@@ -21,7 +21,10 @@
     "content:review": "tsx --conditions=react-server scripts/content-review.ts",
     "questions:import": "tsx --conditions=react-server scripts/import-questions.ts",
     "data:export": "tsx --conditions=react-server scripts/export-course.ts",
-    "data:delete-course": "tsx --conditions=react-server scripts/delete-course.ts"
+    "data:delete-course": "tsx --conditions=react-server scripts/delete-course.ts",
+    "db:backup": "tsx --conditions=react-server scripts/backup.ts",
+    "usage": "tsx --conditions=react-server scripts/usage.ts",
+    "doctor": "tsx --conditions=react-server scripts/doctor.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

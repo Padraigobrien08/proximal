@@ -15,7 +15,8 @@ export default defineConfig({
       url: "http://127.0.0.1:3100/api/courses",
       timeout: 240_000,
       reuseExistingServer: false,
-      env: { PROXIMAL_DATA_DIR: ".e2e-data", LLM_MODE: "mock", ANTHROPIC_API_KEY: "", ANTHROPIC_MODEL: "" },
+      // PROXIMAL_ENV_FILE=none: never read the developer's .env (it may select a live provider).
+      env: { PROXIMAL_DATA_DIR: ".e2e-data", PROXIMAL_ENV_FILE: "none", LLM_MODE: "mock", OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "" },
     },
     {
       // Same build, separate data, first mock assessment fails: exercises pending/retry without credentials.
@@ -23,7 +24,7 @@ export default defineConfig({
       url: "http://127.0.0.1:3101/api/courses",
       timeout: 300_000,
       reuseExistingServer: false,
-      env: { ANTHROPIC_API_KEY: "", ANTHROPIC_MODEL: "" },
+      env: { PROXIMAL_ENV_FILE: "none", LLM_MODE: "mock", OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "" },
     },
   ],
 });

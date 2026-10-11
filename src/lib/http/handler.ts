@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { logEvent } from "../logger";
 import { AppError } from "../services/errors";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -42,7 +43,7 @@ export function errorResponse(err: unknown): Response {
       { status: 400 },
     );
   }
-  console.error(err);
+  logEvent("unhandled_error", { name: (err as Error)?.name ?? "unknown", message: String((err as Error)?.message ?? err).slice(0, 300) }, "error");
   return Response.json({ error: { code: "internal", message: "Unexpected server error.", retryable: true } }, { status: 500 });
 }
 

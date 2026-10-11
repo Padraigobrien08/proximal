@@ -13,7 +13,13 @@ for (let i = 0; i < 480; i++) {
   }
   await new Promise((r) => setTimeout(r, 500));
 }
-const env = { ...process.env, PROXIMAL_DATA_DIR: ".e2e-data-fault", LLM_MODE: "mock", PROXIMAL_FAULT_MOCK_ASSESS_FAILURES: "1" };
+const env = {
+  ...process.env,
+  PROXIMAL_ENV_FILE: "none",
+  PROXIMAL_DATA_DIR: ".e2e-data-fault",
+  LLM_MODE: "mock",
+  PROXIMAL_FAULT_MOCK_ASSESS_FAILURES: "1",
+};
 rmSync(".e2e-data-fault", { recursive: true, force: true });
 const seed = spawnSync("npx", ["tsx", "--conditions=react-server", "scripts/seed.ts"], { env, stdio: "inherit" });
 if (seed.status !== 0) process.exit(seed.status ?? 1);

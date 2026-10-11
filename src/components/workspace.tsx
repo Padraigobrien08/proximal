@@ -139,6 +139,12 @@ export function ProviderNotice({ provider }: { provider: ProviderInfo }) {
                 <dd>{provider.models.tutor}</dd>
               </dl>
             )}
+            {provider.keySource && (
+              <p className="mt-2">
+                API key from {provider.keySource === ".env" ? "the project .env file" : "the shell environment"}.
+                {provider.shellKeyIgnored && " A different key exported in your shell is ignored."}
+              </p>
+            )}
           </>
         )}
       </div>

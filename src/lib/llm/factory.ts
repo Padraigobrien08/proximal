@@ -8,6 +8,7 @@ import type { ExampleFixture } from "../content/schemas";
 import { readEnv, requestedVendor, type AppEnv } from "../env";
 import { ClaudeProvider } from "./claude";
 import { JOB_LABEL, LLM_JOBS, type JobModels } from "./jobs";
+import { MeteredProvider } from "./metered";
 import { OpenAIProvider } from "./openai";
 import { MockProvider } from "./mock";
 import { ProviderError, type CurriculumDraft, type LearningProvider, type LiveVendor } from "./types";
@@ -20,6 +21,9 @@ export interface ProviderStatus {
   model: string | null;
   /** Model per job (live and configured only). */
   models: JobModels | null;
+  /** Where the live key came from; never the key itself. */
+  keySource?: ".env" | "environment" | null;
+  shellKeyIgnored?: boolean;
   ready: boolean;
   message: string;
 }
@@ -127,7 +131,13 @@ export function createProvider(db: Database.Database): { provider: LearningProvi
     };
   }
   if (env.LLM_MODE !== "mock") {
-    const provider = createLiveProvider(env);
+    const live = createLiveProvider(env);
+    // Every live call is metered (usage rows + structured log), capped and concurrency-limited.
+    const provider = Object.assign(new MeteredProvider(live, { db, limits: env.limits }), {
+      vendor: live.vendor,
+      model: live.model,
+      models: live.models,
+    });
     return {
       provider,
       status: {
@@ -135,6 +145,8 @@ export function createProvider(db: Database.Database): { provider: LearningProvi
         vendor: provider.vendor,
         model: provider.model,
         models: provider.models,
+        keySource: env.keyInfo.source,
+        shellKeyIgnored: env.keyInfo.shellKeyIgnored,
         ready: true,
         message: `Live ${VENDOR_LABEL[provider.vendor]}: ${LLM_JOBS.map((j) => `${JOB_LABEL[j].toLowerCase()} ${provider.models[j]}`).join(", ")}`,
       },

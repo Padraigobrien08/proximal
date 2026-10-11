@@ -52,7 +52,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run typecheck` | `tsc --noEmit` in strict mode. |
 | `npm test` | Vitest unit and integration tests (`tests/unit`, `tests/integration`). Uses temporary SQLite DBs and an injected clock. |
 | `npm run test:e2e` | Playwright, key-free. Re-seeds `.e2e-data/`, runs `next build` and serves on 127.0.0.1:3100 in offline mode. It also starts a second server on :3101 with its own `.e2e-data-fault/`, where the first offline assessment fails (test fault injection). Four flows run: showcase, sample import, resume + flag, failed assessment + retry. Run `npx playwright install chromium` once first. Stop any other `next build` first. |
-| `npm run db:migrate` | Applies pending `src/lib/db/migrations/*.sql` to `$PROXIMAL_DATA_DIR/proximal.db`. Idempotent. |
+| `npm run db:migrate` | Applies pending `src/lib/db/migrations/*.sql` to `$PROXIMAL_DATA_DIR/proximal.db`, taking a backup first when the database already has data. The server also migrates on start, after a synchronous safety copy. Idempotent. |
 | `npm run db:seed` | Migrates and regenerates `fixtures/sample-lecture.pdf` from `fixtures/lecture.json` (byte-deterministic; rewritten only when the bytes change). It inserts any missing demo content and updates the demo source text and checked explanations. An `authored_fixture` question is updated only when its fixture `version` increases; owner-reviewed and excluded questions are never changed, and sessions keep the frozen copy they used. Idempotent. It never touches learner records or imported uploads. |
 | `npm run demo:reset -- --yes` | Deletes sessions, attempts, exposures, assessments and review states **for the demo course only**, then re-seeds. Refuses to run without `--yes`, or if `demo-course` is not marked as a demo. Imported courses and uploads are never touched. |
 | `npm run eval:fixtures` | Evaluation harness (see below). Default `--mode mock`; `--mode live --yes` uses the configured provider. |
@@ -60,6 +60,9 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run questions:import -- --file bank.json [--course <id>]` | Attaches an owner-authored question bank (same schema as `fixtures/questions.json`) to existing skills. Inserted as `authored_fixture`. |
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
+| `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
+| `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
+| `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
 All scripts are local developer utilities, not browser endpoints. They load `.env` if it exists; variables already set in the
 environment take precedence.
@@ -79,6 +82,13 @@ PROXIMAL_TIMEZONE=Europe/London
 ```
 
 Restart the server after editing `.env`. Keys are read only on the server and never sent to the browser.
+
+**`.env` wins for provider settings.** Next.js normally lets a variable already exported in your shell override `.env`, which
+can silently pick up a stale `OPENAI_API_KEY`. Proximal reads `.env` itself for `LLM_MODE`, `OPENAI_*`, `ANTHROPIC_*` and the
+usage limits, so `.env` is authoritative for them. The provider Details panel and `npm run doctor` say where the key came from,
+and warn when a different shell key is being ignored. `PROXIMAL_ENV_FILE=<path>` reads a different file;
+`PROXIMAL_ENV_FILE=none` ignores it entirely. The Playwright servers use `none` so a developer's live settings can never be
+picked up by the key-free browser tests.
 
 #### One model per job
 
@@ -144,6 +154,21 @@ scripts/              migrate, seed, demo reset, eval, content review, question 
   transaction. An expired lease can be retried. Only one final assessment per attempt is ever accepted.
 - `server-only` marks the DB, env and SDK modules. Scripts and tests run with the `react-server` condition (or an alias) so they can
   share the code.
+
+## Operations (local)
+
+- **Usage metering.** Every live provider call (assessment, curriculum, tutor, and live eval runs) is recorded in
+  `provider_calls`: job, vendor, model, prompt version, status, error code, latency and token counts. Prompts, answers,
+  documents and keys are never stored there. `npm run usage` summarises it. Costs are not computed; multiply the token counts by
+  your provider's current prices.
+- **Caps and concurrency.** `PROXIMAL_DAILY_CALL_LIMIT` and `PROXIMAL_DAILY_TOKEN_LIMIT` (rolling 24 hours) are checked before
+  every live call. Over a cap the call is refused before reaching the provider, recorded as `blocked`, and the attempt stays
+  saved and retryable. `PROXIMAL_MAX_CONCURRENT_CALLS` (default 2) queues extra simultaneous calls.
+- **Logs.** Each provider call writes one JSON line to the server output (`event: provider_call`, with job, vendor, model,
+  status, latency and tokens), and unexpected server errors write `event: unhandled_error`. No answer text or keys are logged.
+- **Backups.** `npm run db:backup` before risky changes. Schema migrations back up automatically when the database has data.
+  To restore: stop the server, copy `proximal.db` (and `uploads/`) from `data/backups/<timestamp>/` into `data/`, and start
+  the server again.
 
 ## Workspace and recommendations
 

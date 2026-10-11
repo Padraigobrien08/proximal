@@ -4,7 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { loadFixtures, SAMPLE_PDF_PATH } from "../src/lib/content/fixtures";
-import { openDatabase } from "../src/lib/db/connection";
+import { databasePath, openDatabase } from "../src/lib/db/connection";
+import { MeteredProvider } from "../src/lib/llm/metered";
 import { runMigrations } from "../src/lib/db/migrate";
 import { aggregateOutcome } from "../src/lib/domain/assessment";
 import type { AttemptOutcome } from "../src/lib/domain/types";
@@ -12,7 +13,7 @@ import { readEnv } from "../src/lib/env";
 import { createLiveProvider, createMockProvider } from "../src/lib/llm/factory";
 import type { LearningProvider } from "../src/lib/llm/types";
 import { seedDemo } from "../src/lib/services/seed";
-import { arg, flag, loadDotEnv } from "./_lib";
+import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
 loadDotEnv();
 const mode = (arg("mode") ?? "mock") as "mock" | "live";
@@ -58,7 +59,14 @@ if (mode === "live") {
     console.error(`Live evaluation will make ${cases.length} paid API calls to ${live.vendor}:${live.model}. Re-run with --yes to proceed (use --limit N to run fewer).`);
     process.exit(1);
   }
-  provider = live;
+  // Live eval calls are metered into the app database (npm run usage) and respect the daily caps.
+  const appDb = openDatabase(databasePath(dataDir()));
+  runMigrations(appDb);
+  provider = Object.assign(new MeteredProvider(live, { db: appDb, limits: env.limits }), {
+    vendor: live.vendor,
+    model: live.model,
+    models: live.models,
+  });
 } else {
   provider = createMockProvider(db);
 }

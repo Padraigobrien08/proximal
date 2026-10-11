@@ -7,6 +7,8 @@ export interface ProviderStatusLike {
   vendor?: "anthropic" | "openai" | null;
   model: string | null;
   models?: { assess: string; curriculum: string; tutor: string } | null;
+  keySource?: ".env" | "environment" | null;
+  shellKeyIgnored?: boolean;
   ready: boolean;
   message: string;
 }

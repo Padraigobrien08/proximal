@@ -6,6 +6,8 @@ export interface ProviderInfo {
   mode: "mock" | "live";
   vendor?: "anthropic" | "openai" | null;
   models?: { assess: string; curriculum: string; tutor: string } | null;
+  keySource?: ".env" | "environment" | null;
+  shellKeyIgnored?: boolean;
   model: string | null;
   ready: boolean;
   message: string;

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 
-const MIGRATIONS_DIR = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "src/lib/db/migrations");
+export const MIGRATIONS_DIR = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "src/lib/db/migrations");
 
 /** Apply pending .sql migrations in filename order. Idempotent. */
 export function runMigrations(db: Database.Database, dir = MIGRATIONS_DIR): string[] {
