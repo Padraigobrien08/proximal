@@ -159,3 +159,102 @@ export type UnitFixture = z.infer<typeof unitFixtureSchema>;
 export type LectureFixture = z.infer<typeof lectureFixtureSchema>;
 export type ReplayFixture = z.infer<typeof replayFixtureSchema>;
 export type ExampleFixture = z.infer<typeof exampleSchema>;
+
+// ---------------------------------------------------------------- PACER fixtures
+
+const pacerTypeSchema = z.enum(["procedural", "analogous", "conceptual", "supporting_evidence", "reference"]);
+const memoryRequirementSchema = z.enum(["unspecified", "recall_required", "lookup_allowed"]);
+const chunkKindSchema = z.enum(["page", "analogy", "illustration", "notation", "excerpt"]);
+
+const auxChunkSchema = z.strictObject({
+  chunkId: z.string().min(1).max(64),
+  kind: chunkKindSchema,
+  label: z.string().min(1).max(200),
+  text: z.string().min(1).max(2000),
+});
+
+const activityMaterialSchema = z.strictObject({
+  connect: z.strictObject({ concepts: z.array(z.string().min(1)).min(2).max(6), prompt: z.string().min(1), hints: z.array(z.string()).max(3) }).optional(),
+  reconstruct: z.strictObject({ prompt: z.string().min(1) }).optional(),
+  analogy: z.strictObject({ chunkId: z.string(), prompt: z.string().min(1) }).optional(),
+  evidence: z.strictObject({ chunkId: z.string(), excerpt: z.string().min(1), claim: z.string().min(1), prompt: z.string().min(1) }).optional(),
+  reference: z
+    .strictObject({ chunkId: z.string(), excerpt: z.string().min(1), page: z.number().int().positive().nullable(), prompt: z.string().min(1), recallPrompt: z.string().nullable() })
+    .optional(),
+  createAnalogy: z.strictObject({ prompt: z.string().min(1) }).optional(),
+});
+
+/** Authored proposal without server-stamped metadata (validated again at runtime like any provider output). */
+const authoredProposalSchema = z.union([
+  z.strictObject({
+    kind: z.literal("suggestion"),
+    objectiveId: z.string().optional(),
+    primary: pacerTypeSchema,
+    secondary: z.array(pacerTypeSchema),
+    rationale: z.string(),
+    support: z.array(
+      z.union([
+        z.strictObject({ from: z.literal("source"), chunkId: z.string(), quote: z.string() }),
+        z.strictObject({ from: z.enum(["objective", "learner_context"]), quote: z.string() }),
+      ]),
+    ),
+    ambiguityNote: z.string().nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal("abstain"),
+    objectiveId: z.string().optional(),
+    reason: z.enum(["insufficient_context", "unclear_goal", "unreliable_extraction", "no_supported_fit"]),
+    message: z.string(),
+  }),
+]);
+
+export const pacerContextsFixtureSchema = z.strictObject({
+  version: z.number().int().positive(),
+  status: z.literal("provisional_authored"),
+  note: z.string(),
+  skills: z.array(
+    z.strictObject({
+      skillId: z.string().min(1),
+      contextVersion: z.number().int().positive(),
+      learningGoal: z.string().nullable(),
+      memoryRequirement: memoryRequirementSchema,
+      auxChunks: z.array(auxChunkSchema),
+      material: activityMaterialSchema,
+      offline: z.strictObject({ contextHash: z.string(), result: authoredProposalSchema }).nullable(),
+    }),
+  ),
+});
+
+const objectiveInputSchema = z.strictObject({
+  objectiveId: z.string().min(1),
+  objectiveVersion: z.number().int().positive(),
+  objective: z.string().min(1),
+  taskTypes: z.array(z.string()),
+  learningGoal: z.string().nullable(),
+  memoryRequirement: memoryRequirementSchema,
+  learnerConnection: z.string().nullable(),
+  prerequisites: z.array(z.string()),
+  chunks: z.array(auxChunkSchema.extend({ page: z.number().int().positive().nullable() })),
+});
+
+export const pacerDevCasesSchema = z.strictObject({
+  version: z.number().int().positive(),
+  status: z.literal("provisional_authored"),
+  provenance: z.string(),
+  cases: z.array(
+    z.strictObject({
+      id: z.string(),
+      input: objectiveInputSchema,
+      acceptable: z.union([
+        z.strictObject({ kind: z.literal("suggestion"), primary: z.array(pacerTypeSchema).min(1), secondary: z.array(pacerTypeSchema) }),
+        z.strictObject({ kind: z.literal("abstain"), reasons: z.array(z.string()).min(1) }),
+      ]),
+      expectedActivity: z.string().nullable(),
+      annotation: authoredProposalSchema,
+    }),
+  ),
+  invalidResponses: z.array(z.strictObject({ id: z.string(), caseId: z.string(), description: z.string(), results: z.array(z.unknown()) })),
+});
+
+export type PacerContextsFixture = z.infer<typeof pacerContextsFixtureSchema>;
+export type PacerDevCases = z.infer<typeof pacerDevCasesSchema>;

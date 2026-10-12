@@ -1,6 +1,6 @@
 # Proximal — Claude Code implementation handoff
 
-Version 2.0 • 10 October 2026 • Owner: Padraig O’Brien
+Version 2.1 • 11 October 2026 • Owner: Padraig O’Brien
 
 ## 1. Read this first
 
@@ -9,6 +9,8 @@ Implement Proximal as a professional, topic-based study workspace. The learner a
 This is a consolidated implementation handoff for an existing application. The owner has already started building Proximal in Claude Code and implemented a redesigned home page. The actual repository was not available to the author of this document: inspect it before deciding what work remains. Treat the current app as the starting point, preserve working functionality, and reconcile the design with its real state and routes.
 
 This file supersedes the earlier build brief's UI, homepage, prioritisation and milestone instructions. Its technical appendix carries forward the consequential assessment and persistence contracts. The broader project specification is background; its full feature list is not a requirement for the hackathon slice. When there is a conflict, follow this file. Applicable repository instructions still govern implementation conventions.
+
+Read `docs/proximal/PACER_FEATURE_SPEC.md` for the approved extension that classifies information and routes reviewed suggestions into learning activities. Implement its bounded slice after the core P0 loop works. That feature spec governs PACER only; the assessment, assistance and independent-evidence contracts in this file remain authoritative. Broad PDF import, a mind-map canvas, new live assessment questions and a new scheduler are not prerequisites for PACER.
 
 Read the whole document, inspect the repository and relevant AGENTS.md files, then implement the milestones. Do not stop after a plan or mockup. Make routine reversible decisions autonomously. Ask only about a material blocker, destructive change or an incompatible repository constraint. Preserve unrelated changes and do not deploy or provision services as part of this task.
 
@@ -52,6 +54,7 @@ Implement in phases. P0 must work before adding P1. Preserve already working P1 
 | P0 | Honest offline provider and a server-side live Claude adapter | No-key demo works; configured live input is graded against frozen rubrics |
 | P0 | Topic evidence, scheduled fresh question and judgement flagging | Correction stays supported; exclusion rebuilds evidence correctly |
 | P0 | Core automated checks, visual verification and README | Demonstrable end-to-end slice and accurate setup instructions |
+| Extension after P0 | PACER suggestions, review and authored learning activities | Follow PACER_FEATURE_SPEC.md; no automatic mastery from activity completion |
 | P1 | Expand to the original three topics, six skills and twelve authored questions | Required capabilities have multiple structural families |
 | P1 | Bounded text-PDF import, draft edit and explicit approval | Imports never masquerade as assessment-ready curricula |
 | P1 | Fixture evaluation harness and local export/delete utilities | Reports are labelled development checks, not a student study |
@@ -424,7 +427,8 @@ P1 adds sample import/extraction/edit/approval, unsupported-PDF errors and revie
 4. Workspace UI: shared shell, all home states, time-budget selection, topic evidence, focused session/results and responsive behaviour. Exit: every visible action works from real state.
 5. Live adapter: validate output, preserve pending errors and separate tutoring from assessment. Exit: configured live check works, or missing credentials are reported as the only remaining live verification limitation.
 6. Verify P0: typecheck, lint, tests, production build, browser flows and visual inspection. Fix consequential failures before broadening scope.
-7. P1 only after P0: additional bank/import/evaluation/utilities/replay as time permits, with their tests.
+7. Approved PACER extension after P0: follow `PACER_FEATURE_SPEC.md` for classification/review, Connect/Reconstruct and activity routing, then run P01–P18 checks. This extension uses approved source text and does not depend on PDF import.
+8. P1 only after P0: additional bank/import/evaluation/utilities/replay as time permits, with their tests.
 
 Required commands for the completed default stack: `dev`, `build`, `start`, `lint`, `typecheck`, `test`, `test:e2e`, `db:migrate`, `db:seed`. Add `eval:fixtures`, guarded `demo:reset` and import/review utilities when their P1 feature exists. Document exact setup, seed idempotency, provider configuration, review policy, content review and localhost limitations. Never list an unimplemented command as working.
 

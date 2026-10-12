@@ -18,6 +18,7 @@ import { AskButton } from "../AskButton";
 import { DuePill, HowLevelsWork, LevelLadder, LevelPill, RollupSummary } from "../levels";
 import { ProviderNotice, useContinue } from "../workspace";
 import { Notice, Pill } from "../ui";
+import { LearningApproachPanel, type ApproachSummary } from "../LearningApproach";
 
 const TZ = "Europe/London";
 
@@ -60,7 +61,8 @@ type HistoryRow =
       providerLabel: string | null;
       feedback: FeedbackData | null;
     }
-  | { kind: "help"; at: number; id: string; label: string; skillIds: string[] };
+  | { kind: "help"; at: number; id: string; label: string; skillIds: string[] }
+  | { kind: "activity"; at: number; id: string; skillId: string; label: string; typeLabel: string; text: string };
 
 interface TopicData {
   provider: ProviderInfo;
@@ -86,6 +88,7 @@ interface TopicData {
   primaryAction: "learn" | "check" | "review";
   activeSessions: { id: string; mode: string; purpose: string; phase: string; startedAt: string }[];
   history: HistoryRow[];
+  learningApproach: { available: boolean; skills: ApproachSummary[] };
 }
 
 const PURPOSE_TEXT: Record<string, string> = {
@@ -303,6 +306,15 @@ export function TopicScreen({ topicId }: { topicId: string }) {
         </p>
       </section>
 
+      {data.learningApproach.available && data.learningApproach.skills.length > 0 && (
+        <LearningApproachPanel
+          topicId={topicId}
+          skills={data.learningApproach.skills}
+          checkInProgress={data.activeSessions.some((s) => s.mode === "review")}
+          onChanged={reload}
+        />
+      )}
+
       <HowLevelsWork />
 
       <details className="rounded-xl border border-line bg-card px-5 py-4">
@@ -313,7 +325,24 @@ export function TopicScreen({ topicId }: { topicId: string }) {
           ) : (
             <ol className="overflow-hidden rounded-[10px] border border-line" data-testid="evidence-list">
               {data.history.map((h) =>
-                h.kind === "help" ? (
+                h.kind === "activity" ? (
+                  <li key={h.id} className="border-b border-line px-4 py-3 last:border-b-0" data-testid="activity-history">
+                    <details>
+                      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-xs text-muted">{formatDateTime(h.at, TZ)}</span>
+                        <span className="text-sm font-medium">{h.label}</span>
+                        <span className="text-sm text-muted">{skillById.get(h.skillId)?.objective ?? h.skillId}</span>
+                        <Pill>Learning activity · not a check</Pill>
+                        <span className="text-xs text-teal underline underline-offset-2">Details</span>
+                      </summary>
+                      <div className="mt-3 rounded-lg bg-paper p-3">
+                        <p className="text-xs font-medium text-muted">Your response ({h.typeLabel})</p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm">{h.text}</p>
+                        <p className="mt-2 text-xs text-muted">Saved as a learning response. It is not graded and does not change your level.</p>
+                      </div>
+                    </details>
+                  </li>
+                ) : h.kind === "help" ? (
                   <li key={h.id} className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted last:border-b-0">
                     <FileText size={14} aria-hidden="true" />
                     <span>{formatDateTime(h.at, TZ)}</span>

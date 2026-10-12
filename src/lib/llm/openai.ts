@@ -15,7 +15,11 @@ import {
   CHAT_PROMPT_VERSION,
   CHAT_SYSTEM,
   chatUserContent,
+  PACER_PROMPT_VERSION,
+  PACER_SYSTEM,
+  pacerUserContent,
 } from "./prompts";
+import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import { assessorJsonSchema, chatJsonSchema, chatReplySchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
 import {
@@ -28,6 +32,7 @@ import {
   type TutorInput,
   type ChatInput,
   type ChatReply,
+  type PacerClassifyInput,
 } from "./types";
 
 export const OPENAI_TIMEOUT_MS = 60_000;
@@ -198,6 +203,18 @@ export class OpenAIProvider implements LearningProvider {
   async chat(input: ChatInput): Promise<{ reply: ChatReply; meta: ProviderMeta }> {
     const { value, usage } = await this.structured("tutor", CHAT_SYSTEM, chatUserContent(input), { name: "chat_reply", schema: chatJsonSchema }, chatReplySchema);
     return { reply: value, meta: this.meta("tutor", CHAT_PROMPT_VERSION, usage) };
+  }
+
+  /** PACER proposals under the curriculum job's model. Ids, quotes and labels are validated server-side afterwards. */
+  async classifyPacer(input: PacerClassifyInput): Promise<{ results: unknown[]; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      PACER_SYSTEM,
+      pacerUserContent(input),
+      { name: "pacer_classification", schema: pacerJsonSchema },
+      wireBatchSchema,
+    );
+    return { results: value.results.map(fromWire), meta: this.meta("curriculum", PACER_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

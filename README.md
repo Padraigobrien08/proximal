@@ -236,6 +236,40 @@ scripts/              migrate, seed, demo reset, eval, content review, question 
 - **Flag judgement** excludes an assessment, records the reason and rebuilds the skill state. The history stays visible. There is no
   adjudication queue.
 
+## PACER learning approach
+
+Implements the bounded slice of [`docs/proximal/PACER_FEATURE_SPEC.md`](docs/proximal/PACER_FEATURE_SPEC.md). PACER (introduced by
+Justin Sung) is adapted here as an information-and-activity taxonomy: Procedural, Analogous, Conceptual, Supporting evidence, Reference.
+It is not a learning style, level or mastery measure, and no learning gain is claimed.
+
+- **Classify** (topic page → Learning approach → Suggest approaches): one skill per objective, built server-side from approved source
+  pages plus authored contexts (`fixtures/pacer/contexts.json`, seeded into `pacer_contexts`). Live mode uses the **curriculum** job's
+  model (prompt `pacer-classifier-v1`); offline mode returns authored annotations only for an exactly matching context hash, labelled
+  "Offline authored annotation (not model inference)", and abstains otherwise. A live failure is saved as a retryable error, never
+  mock output. Unchanged requests reuse their saved proposal; "Suggest again" regenerates explicitly.
+- **Validation**: Zod discriminated union; exactly one result per requested objective; unknown/duplicate ids, unknown chunks and
+  quotes that are not whitespace-normalised substrings of the supplied text are rejected; ≤2 unique secondary types; every proposed
+  type must be explained in the rationale; Analogous needs an approved comparison chunk or a learner-supplied connection.
+- **Bounds**: ≤10 objectives and ≤12,000 characters per request (larger topics are split into several requests); ≤4,000 characters
+  per objective (raised from the spec's provisional 2,000 because imported units often cite several pages). An objective over the
+  limit is marked "Not classified" by name and is never truncated.
+- **Review**: suggestions are drafts until Accept / Edit / Dismiss (or explicit "Accept all" after the reasons are shown). Manual
+  choices are "Chosen by you" with the learner's reason, if any. Regeneration adds a draft and never overwrites a decision; a decision
+  must name the decision it replaces. Source/context changes mark the decision stale and it stops routing new sessions.
+- **Activities** (learning sessions only, frozen at session start): Connect → checked explanation → Reconstruct (explanation hidden),
+  guided practice on the existing question, and Map-and-critique / Claim-support-limits / Capture-and-locate / Make-your-own-comparison
+  where authored material exists. Otherwise "No prepared activity for this approach" and ordinary learning continues.
+- **Evidence boundary**: responses are stored in `pacer_responses` with a workflow status only. They never create attempts,
+  assessments, levels or review dates. Guided practice uses the existing assessment path and is always supported. Opening reasons and
+  quotes while a session that includes the skill is active commits an explanation exposure there first; checks never receive
+  classification data.
+- **Evaluation**: `fixtures/pacer/dev-cases.json` holds F01–F12 plus two invalid service responses (provisional, not owner-reviewed).
+  Offline runs in `tests/unit/pacer-classification.test.ts` test software only; exact fixture agreement is not classifier accuracy.
+
+Known limitations: live classification has not been verified with real credentials; imported PDFs get classification and review but
+no activities (no authored material or checked explanations); no UI for a learner-supplied familiar connection; no variant question
+after guided practice (keeps fresh families for checks); no tutor feedback on responses; no `eval:pacer` report script.
+
 ## Sample content
 
 `fixtures/lecture.json` is original material authored for this demo. It is not a university handout. `npm run db:seed` renders it
