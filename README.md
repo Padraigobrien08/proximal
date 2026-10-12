@@ -61,6 +61,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer]` | One real call per provider job (6 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -266,7 +267,7 @@ It is not a learning style, level or mastery measure, and no learning gain is cl
 - **Evaluation**: `fixtures/pacer/dev-cases.json` holds F01–F12 plus two invalid service responses (provisional, not owner-reviewed).
   Offline runs in `tests/unit/pacer-classification.test.ts` test software only; exact fixture agreement is not classifier accuracy.
 
-Known limitations: live classification has not been verified with real credentials; imported PDFs get classification and review but
+Known limitations: live classification has passed only the smoke test (`npm run smoke:live`), not an accuracy evaluation; imported PDFs get classification and review but
 no activities (no authored material or checked explanations); no UI for a learner-supplied familiar connection; no variant question
 after guided practice (keeps fresh families for checks); no tutor feedback on responses; no `eval:pacer` report script.
 
@@ -365,9 +366,9 @@ draft edit, approval, page references and disabled review.
   counts as a valid independent fail.
 - **Checkpoint assessment runs during the submit request.** The learner still sees only "Answer saved". A provider timeout leaves
   the attempt retryable.
-- **Live providers are unverified end to end.** Both adapters are tested with stubbed SDK clients only; no request has been
-  made with real credentials. After configuring a provider, try one assessment, one import and one tutor request before relying
-  on it.
+- **Live verification is a smoke test, not an evaluation.** `npm run smoke:live -- --yes` passed 6/6 on 2026-10-12 against OpenAI
+  (`gpt-5.5-2026-04-23` for assessment and curriculum, `gpt-5.4-mini-2026-03-17` for the tutor). The Claude adapter is still tested
+  with stubbed SDK clients only. Run the smoke test after changing a provider or model.
 - **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
   fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
   do not set it in normal use.
