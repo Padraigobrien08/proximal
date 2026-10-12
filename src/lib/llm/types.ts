@@ -17,6 +17,8 @@ export interface CurriculumInput {
   sha256: string;
   fileName: string;
   pages: { page: number; text: string }[];
+  /** Set when a long document is drafted in parts: which part this is and the whole document's page count. */
+  part?: { index: number; total: number; documentPageCount: number };
 }
 
 export interface CurriculumDraft {

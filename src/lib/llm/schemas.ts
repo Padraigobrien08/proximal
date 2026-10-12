@@ -124,16 +124,22 @@ export const curriculumJsonSchema: Record<string, unknown> = {
   },
 };
 
-/** Units must total 3-8 with valid page references. */
+/**
+ * A whole document needs 3-8 units; one part of a longer document needs 1-8 (a short final part may hold little).
+ * Every page reference must be one of the pages that request actually sent.
+ */
 export function validateCurriculumDraft(
   draft: z.infer<typeof curriculumDraftSchema>,
-  pageCount: number,
+  opts: { pages: number[]; part?: boolean },
 ): string[] {
   const problems: string[] = [];
   const units = draft.topics.flatMap((t) => t.units);
-  if (units.length < 3 || units.length > 8) problems.push(`expected 3-8 units, got ${units.length}`);
+  const min = opts.part ? 1 : 3;
+  if (units.length < min || units.length > 8) problems.push(`expected ${min}-8 units, got ${units.length}`);
+  const allowed = new Set(opts.pages);
+  const range = opts.pages.length ? `${Math.min(...opts.pages)}-${Math.max(...opts.pages)}` : "none";
   for (const u of units) {
-    for (const p of u.sourcePages) if (p < 1 || p > pageCount) problems.push(`unit "${u.title}" cites invalid page ${p}`);
+    for (const p of u.sourcePages) if (!allowed.has(p)) problems.push(`unit "${u.title}" cites page ${p}, outside pages ${range}`);
     if (!u.objective.trim()) problems.push(`unit "${u.title}" has an empty objective`);
   }
   return problems;

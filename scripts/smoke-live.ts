@@ -1,7 +1,7 @@
 // Live smoke test: one real call per provider job (assessment, tutor, chat, curriculum, PACER, question drafts), run
 // through the same services and validators the app uses. Learner data is never touched: the demo is seeded into a
 // temporary database. Calls are metered into the app database (npm run usage) and respect the daily caps.
-// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer,questions]
+// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,pacer,questions]
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,16 +15,17 @@ import { createLiveProvider } from "../src/lib/llm/factory";
 import { MeteredProvider } from "../src/lib/llm/metered";
 import { askChat } from "../src/lib/services/chat";
 import type { AppContext } from "../src/lib/services/context";
-import { importPdf } from "../src/lib/services/imports";
+import { draftCurriculumInParts, importPdf } from "../src/lib/services/imports";
+import { planCurriculumParts } from "../src/lib/content/chunking";
 import { classifyTopic } from "../src/lib/services/pacer";
 import { checkDraftBatch } from "../src/lib/questions/drafts";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
-const JOBS = ["assess", "tutor", "chat", "curriculum", "pacer", "questions"] as const;
+const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "pacer", "questions"] as const;
 type Job = (typeof JOBS)[number];
 // Paid calls per job, so the confirmation message is exact.
-const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, pacer: 1, questions: 1 };
+const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, pacer: 1, questions: 1 };
 
 loadDotEnv();
 const only = arg("only")?.split(",").map((s) => s.trim()) as Job[] | undefined;
@@ -140,6 +141,23 @@ if (jobs.includes("curriculum")) {
       .prepare("SELECT COUNT(*) AS n FROM units u JOIN topics t ON t.id = u.topic_id WHERE t.course_id = ?")
       .get(res.courseId) as { n: number };
     return { ok: res.curriculum === "generated" && units.n >= 3, detail: `${res.curriculum}, ${units.n} draft units: ${res.message}` };
+  });
+}
+
+// Part-by-part drafting, as a long PDF gets: the sample lecture forced into 3 parts of 2 pages each.
+if (jobs.includes("parts")) {
+  await check("curriculum in parts", async () => {
+    const pages = fixtures.lecture.pages.map((p) => ({ page: p.page, text: pageText(p) }));
+    const target = Math.ceil(pages.reduce((n, p) => n + p.text.length, 0) / 3);
+    const plan = planCurriculumParts(pages, target, target * 2);
+    if (!plan.ok) return { ok: false, detail: plan.reason };
+    const draft = await draftCurriculumInParts(ctx, { sha256: "smoke-parts", fileName: "smoke-parts.pdf", pageCount: pages.length }, plan.parts);
+    const units = draft.topics.flatMap((t) => t.units);
+    const cited = new Set(units.flatMap((u) => u.sourcePages));
+    return {
+      ok: plan.parts.length === 3 && units.length >= 3,
+      detail: `${plan.parts.length} parts -> ${draft.topics.length} topics, ${units.length} units, pages cited ${[...cited].sort((a, b) => a - b).join(",")}`,
+    };
   });
 }
 

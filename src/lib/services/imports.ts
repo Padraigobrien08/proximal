@@ -1,4 +1,4 @@
-// Bounded synchronous PDF import, draft curriculum editing and explicit approval.
+// Bounded synchronous PDF import (long documents drafted in parts), draft curriculum editing and explicit approval.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -29,13 +29,41 @@ import {
   deleteUnit,
 } from "../db/repo";
 import { extractPdfText, MAX_PDF_BYTES, PdfImportError } from "../pdf/extract";
+import { mergeCurriculumDrafts, planCurriculumParts, type CurriculumPart } from "../content/chunking";
 import { validateCurriculumDraft } from "../llm/schemas";
 import { ProviderError, type CurriculumDraft } from "../llm/types";
 import type { AppContext } from "./context";
 import { AppError, notFound } from "./errors";
 
-/** Bound on extracted text sent for curriculum generation; larger files are rejected, never silently truncated. */
-export const MAX_CURRICULUM_INPUT_CHARS = 120_000;
+/**
+ * One request per part, run concurrently (the metered provider caps how many are in flight). Each part is validated
+ * against its own pages. Any failing part fails the whole import, so a partial curriculum is never stored as if
+ * complete. A single-part document is sent exactly as before, without part markers.
+ */
+export async function draftCurriculumInParts(
+  ctx: AppContext,
+  doc: { sha256: string; fileName: string; pageCount: number },
+  parts: CurriculumPart[],
+): Promise<CurriculumDraft> {
+  const single = parts.length === 1;
+  const drafts = await Promise.all(
+    parts.map(async (part) => {
+      const res = await ctx.provider.generateCurriculum({
+        sha256: doc.sha256,
+        fileName: doc.fileName,
+        pages: part.pages,
+        ...(single ? {} : { part: { index: part.index, total: part.total, documentPageCount: doc.pageCount } }),
+      });
+      const problems = validateCurriculumDraft(res.draft, { pages: part.pages.map((p) => p.page), part: !single });
+      if (problems.length > 0) {
+        const where = single ? "" : ` (part ${part.index} of ${part.total}, pages ${part.firstPage}-${part.lastPage})`;
+        throw new AppError("provider_malformed", `Generated curriculum failed validation${where}: ${problems.join("; ")}`, true);
+      }
+      return res.draft;
+    }),
+  );
+  return mergeCurriculumDrafts(drafts);
+}
 
 export interface ImportResult {
   courseId: string;
@@ -106,32 +134,24 @@ export async function importPdf(
     throw new AppError("pdf_rejected", message);
   }
 
-  const totalChars = pages.reduce((n, p) => n + p.text.length, 0);
   let draft: CurriculumDraft | null = null;
   let message: string;
   let curriculum: ImportResult["curriculum"];
   let generationError: AppError | null = null;
-  if (totalChars > MAX_CURRICULUM_INPUT_CHARS && ctx.providerStatus.mode === "live") {
-    generationError = new AppError(
-      "too_large",
-      `Extracted text is ${totalChars.toLocaleString()} characters; the limit for curriculum generation is ${MAX_CURRICULUM_INPUT_CHARS.toLocaleString()}. Upload a smaller excerpt (no pages are dropped silently).`,
-    );
+  // Long documents are drafted in parts of whole consecutive pages; nothing is truncated or dropped.
+  const plan = planCurriculumParts(pages.map((p) => ({ page: p.pageNumber, text: p.text })));
+  if (!plan.ok) {
+    generationError = new AppError("too_large", plan.reason);
   } else {
     try {
-      const res = await ctx.provider.generateCurriculum({
-        sha256,
-        fileName: originalName,
-        pages: pages.map((p) => ({ page: p.pageNumber, text: p.text })),
-      });
-      const problems = validateCurriculumDraft(res.draft, pages.length);
-      if (problems.length > 0) {
-        generationError = new AppError("provider_malformed", `Generated curriculum failed validation: ${problems.join("; ")}`, true);
-      } else draft = res.draft;
+      draft = await draftCurriculumInParts(ctx, { sha256, fileName: originalName, pageCount: pages.length }, plan.parts);
     } catch (err) {
       if (err instanceof ProviderError && err.code === "offline_unsupported") {
         message = err.message;
       } else if (err instanceof ProviderError) {
         generationError = new AppError(err.code, err.message, err.retryable);
+      } else if (err instanceof AppError) {
+        generationError = err;
       } else throw err;
     }
   }
@@ -183,7 +203,9 @@ export async function importPdf(
     message =
       curriculum === "fixture"
         ? "Recognised the authored sample lecture. Loaded its fixture curriculum as an editable draft."
-        : "Draft curriculum generated. Review every objective before approving.";
+        : plan.ok && plan.parts.length > 1
+          ? `Draft curriculum generated from ${plan.parts.length} parts of this long PDF (pages ${plan.parts.map((x) => `${x.firstPage}-${x.lastPage}`).join(", ")}). Review every objective before approving.`
+          : "Draft curriculum generated. Review every objective before approving.";
   } else {
     curriculum = "manual_required";
     message = "Offline mode cannot generate a curriculum for this file. Text was extracted; add objectives manually.";

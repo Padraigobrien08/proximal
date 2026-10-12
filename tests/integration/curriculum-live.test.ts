@@ -5,7 +5,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { ClaudeProvider } from "../../src/lib/llm/claude";
 import { CURRICULUM_PROMPT_VERSION } from "../../src/lib/llm/prompts";
 import type { CurriculumDraft } from "../../src/lib/llm/types";
-import { importPdf, MAX_CURRICULUM_INPUT_CHARS } from "../../src/lib/services/imports";
+import { importPdf } from "../../src/lib/services/imports";
 import { getCourseView } from "../../src/lib/services/views";
 import { createTestContext } from "../helpers";
 
@@ -179,9 +179,9 @@ describe("PDF import with live curriculum generation (stubbed)", () => {
     const { ctx, dir } = await liveSetup([message(JSON.stringify(bad))]);
     await expect(importPdf(ctx, dir, { name: "notes.pdf", bytes: await lecturePdf(PAGES) })).rejects.toMatchObject({
       code: "provider_malformed",
-      message: expect.stringContaining("invalid page 9"),
+      message: expect.stringContaining("cites page 9, outside pages 1-3"),
     });
-    expect(ctx.db.prepare("SELECT status, error FROM sources WHERE original_name = 'notes.pdf'").get()).toMatchObject({ status: "failed", error: expect.stringContaining("invalid page 9") });
+    expect(ctx.db.prepare("SELECT status, error FROM sources WHERE original_name = 'notes.pdf'").get()).toMatchObject({ status: "failed", error: expect.stringContaining("cites page 9, outside pages 1-3") });
     expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM courses WHERE is_demo = 0").get()).toEqual({ n: 0 });
   });
 
@@ -205,13 +205,65 @@ describe("PDF import with live curriculum generation (stubbed)", () => {
     expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM courses WHERE is_demo = 0").get()).toEqual({ n: 1 });
   });
 
-  it("refuses over-long text before calling the model, instead of silently dropping pages", async () => {
-    const { ctx, dir, calls } = await liveSetup([]);
-    const filler = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. ";
-    const perPage = filler.repeat(40);
-    const pagesNeeded = Math.ceil(MAX_CURRICULUM_INPUT_CHARS / perPage.length) + 1;
-    const big = await lecturePdf(Array.from({ length: Math.min(50, pagesNeeded) }, () => perPage));
-    await expect(importPdf(ctx, dir, { name: "long.pdf", bytes: big })).rejects.toMatchObject({ code: "too_large" });
-    expect(calls).toHaveLength(0);
+  it("drafts a long PDF in parts of whole pages, validates each part against its own pages, and merges them", async () => {
+    const calls: Call[] = [];
+    // Answers each part with one unit citing that part's first page, under a topic title shared by every part.
+    const client = {
+      messages: {
+        create: async (params: Call) => {
+          calls.push(params);
+          const m = /pages="(\d+)-(\d+)"/.exec(params.messages[0].content);
+          const first = m ? Number(m[1]) : 1;
+          const draft: CurriculumDraft = {
+            topics: [{ title: "Long lecture", units: [{ title: `From page ${first}`, objective: `Explain page ${first}`, sourcePages: [first], skills: [{ objective: "Explain it" }] }] }],
+            suggestions: ["Read further"],
+          };
+          return message(JSON.stringify(draft));
+        },
+      },
+    } as unknown as Pick<Anthropic, "messages">;
+    const t = await createTestContext({ mode: "live", provider: () => new ClaudeProvider({ apiKey: "k", model: "claude-test-model", client }) });
+    cleanup = t.cleanup;
+    const perPage = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. ".repeat(40);
+    const big = await lecturePdf(Array.from({ length: 50 }, () => perPage));
+
+    const res = await importPdf(t.ctx, t.dir, { name: "long.pdf", bytes: big });
+    expect(res.curriculum).toBe("generated");
+    expect(calls.length).toBeGreaterThan(1);
+    // Every page is sent exactly once, in order, across the parts.
+    const sent = calls.flatMap((c) => [...c.messages[0].content.matchAll(/<page number="(\d+)">/g)].map((m) => Number(m[1])));
+    expect(sent).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+    expect(calls[0].messages[0].content).toContain(`part="1 of ${calls.length}"`);
+    expect(calls[0].messages[0].content).toContain('page_count="50"');
+
+    const view = getCourseView(t.ctx, res.courseId);
+    // The topic repeated by every part is merged into one, keeping the units in page order.
+    expect(view.topics).toHaveLength(1);
+    expect(view.topics[0].units).toHaveLength(calls.length);
+    expect(res.message).toMatch(new RegExp(`from ${calls.length} parts`));
+  });
+
+  it("fails the whole import, storing no course, when one part cites a page outside that part", async () => {
+    let n = 0;
+    const client = {
+      messages: {
+        create: async () => {
+          n += 1;
+          // Every part claims page 1, which only the first part contains.
+          return message(JSON.stringify({ topics: [{ title: "T", units: [{ title: "U", objective: "O", sourcePages: [1], skills: [{ objective: "S" }] }] }], suggestions: [] }));
+        },
+      },
+    } as unknown as Pick<Anthropic, "messages">;
+    const t = await createTestContext({ mode: "live", provider: () => new ClaudeProvider({ apiKey: "k", model: "claude-test-model", client }) });
+    cleanup = t.cleanup;
+    const perPage = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. ".repeat(40);
+    const big = await lecturePdf(Array.from({ length: 50 }, () => perPage));
+    const before = (t.ctx.db.prepare("SELECT COUNT(*) AS n FROM courses").get() as { n: number }).n;
+    await expect(importPdf(t.ctx, t.dir, { name: "long.pdf", bytes: big })).rejects.toMatchObject({
+      code: "provider_malformed",
+      message: expect.stringMatching(/part 2 of \d+, pages \d+-\d+.*outside pages/),
+    });
+    expect(n).toBeGreaterThan(1);
+    expect((t.ctx.db.prepare("SELECT COUNT(*) AS n FROM courses").get() as { n: number }).n).toBe(before);
   });
 });
