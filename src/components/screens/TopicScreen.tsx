@@ -19,6 +19,7 @@ import { DuePill, HowLevelsWork, LevelLadder, LevelPill, RollupSummary } from ".
 import { ProviderNotice, useContinue } from "../workspace";
 import { Notice, Pill } from "../ui";
 import { LearningApproachPanel, type ApproachSummary } from "../LearningApproach";
+import { QuestionDraftsPanel } from "../QuestionDrafts";
 
 const TZ = "Europe/London";
 
@@ -251,8 +252,15 @@ export function TopicScreen({ topicId }: { topicId: string }) {
       {(actionError || go.error) && <Notice tone={go.error ? "warn" : "error"}>{actionError ?? go.error}</Notice>}
       {!data.reviewAvailable && (
         <Notice tone="warn">
-          No-help checks are disabled until an owner-authored, reviewed question bank is attached (see the README:
-          <code className="mx-1">npm run questions:import</code>). Imported objectives are never mapped to demo questions.
+          {data.course.isDemo ? (
+            "No-help checks need reviewed assessment questions."
+          ) : (
+            <>
+              No-help checks need an approved question. Draft and approve questions under <strong>Check questions</strong> below,
+              or attach a bank with <code className="mx-1">npm run questions:import</code>. Imported objectives are never mapped to
+              demo questions.
+            </>
+          )}
         </Notice>
       )}
 
@@ -302,9 +310,16 @@ export function TopicScreen({ topicId }: { topicId: string }) {
         <p className="mt-3 flex items-start gap-2 text-xs text-muted">
           <CircleHelp size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
           The app can&apos;t see other tabs or notes, so a no-help check relies on you to declare outside help.
-          {anyFixture && " Questions here are authored fixtures that the owner has not yet reviewed."}
+          {anyFixture &&
+            (data.course.isDemo
+              ? " Questions here are authored fixtures that the owner has not yet reviewed."
+              : " Some questions here have not had their marking scheme reviewed by a person (see Check questions).")}
         </p>
       </section>
+
+      {!data.course.isDemo && data.course.status === "approved" && (
+        <QuestionDraftsPanel topicId={topicId} checkInProgress={data.activeSessions.some((s) => s.mode === "review")} onChanged={reload} />
+      )}
 
       {data.learningApproach.available && data.learningApproach.skills.length > 0 && (
         <LearningApproachPanel

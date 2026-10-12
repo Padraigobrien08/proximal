@@ -52,6 +52,9 @@ class UnavailableProvider implements LearningProvider {
   async classifyPacer(): Promise<never> {
     this.fail();
   }
+  async draftQuestions(): Promise<never> {
+    this.fail();
+  }
 }
 
 export function fixtureCurriculumDraft(): CurriculumDraft {
@@ -82,6 +85,39 @@ export function pacerAnnotations(): Map<string, Record<string, unknown>> {
   return m;
 }
 
+let authoredDraftCache: Map<string, unknown> | null = null;
+
+/**
+ * The sample-lecture question bank in draft form, keyed by the exact skill objective of the fixture curriculum. Used
+ * offline only, so an imported copy of the sample lecture can go through draft review without a model.
+ */
+export function authoredDrafts(): Map<string, unknown> {
+  if (authoredDraftCache) return authoredDraftCache;
+  const { curriculum, bank } = loadFixtures();
+  const m = new Map<string, unknown>();
+  for (const skill of curriculum.topics.flatMap((t) => t.units.flatMap((u) => u.skills))) {
+    const questions = bank.questions
+      .filter((q) => q.skillId === skill.id)
+      .map((q) => ({
+        familyRole: q.isTransfer ? "new_context" : "initial",
+        transferChange: q.isTransfer ? "Authored new-context question from the sample bank (structurally different task)." : "",
+        taskType: q.taskType,
+        prompt: q.prompt,
+        referenceSummary: q.reference.summary,
+        criteria: q.rubric.criteria,
+        numericChecks: q.reference.numericChecks,
+        hints: q.hints,
+        sourcePages: q.sourceRefs.map((r) => r.page),
+        examples: q.examples
+          .filter((e) => e.label !== "ambiguous" && e.expectedOutcome !== "uncertain")
+          .map((e) => ({ label: e.label, answer: e.answer, expectedOutcome: e.expectedOutcome })),
+      }));
+    if (questions.length) m.set(skill.objective.trim(), { questions });
+  }
+  authoredDraftCache = m;
+  return m;
+}
+
 export function sampleLectureSha(): string | null {
   if (!existsSync(SAMPLE_PDF_PATH)) return null;
   return createHash("sha256").update(readFileSync(SAMPLE_PDF_PATH)).digest("hex");
@@ -107,6 +143,7 @@ export function createMockProvider(db: Database.Database): MockProvider {
     },
     sampleLecture: sha ? { sha256: sha, draft: fixtureCurriculumDraft() } : null,
     pacerAnnotation: (hash) => pacerAnnotations().get(hash) ?? null,
+    authoredDrafts: (objective) => authoredDrafts().get(objective) ?? null,
   });
   if (faultState.__proximalMockFailures && faultState.__proximalMockFailures > 0) {
     const real = provider.assessAnswer.bind(provider);

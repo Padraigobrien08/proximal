@@ -16,10 +16,14 @@ import {
   CHAT_SYSTEM,
   chatUserContent,
   PACER_PROMPT_VERSION,
+  QUESTION_DRAFT_PROMPT_VERSION,
+  QUESTION_DRAFT_SYSTEM,
+  questionDraftUserContent,
   PACER_SYSTEM,
   pacerUserContent,
 } from "./prompts";
 import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
+import { draftBatchJsonSchema, looseDraftBatchSchema } from "../questions/drafts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import {
   assessorJsonSchema,
@@ -40,6 +44,7 @@ import {
   type ChatInput,
   type ChatReply,
   type PacerClassifyInput,
+  type QuestionDraftInput,
 } from "./types";
 
 export const CLAUDE_TIMEOUT_MS = 60_000;
@@ -191,6 +196,21 @@ export class ClaudeProvider implements LearningProvider {
   async classifyPacer(input: PacerClassifyInput): Promise<{ results: unknown[]; meta: ProviderMeta }> {
     const { value, usage } = await this.structured("curriculum", PACER_SYSTEM, pacerUserContent(input), pacerJsonSchema, wireBatchSchema);
     return { results: value.results.map(fromWire), meta: this.meta("curriculum", PACER_PROMPT_VERSION, usage) };
+  }
+
+  /**
+   * Question drafts under the curriculum job's model. Only the outer shape is enforced here: each question is checked
+   * server-side on its own, so one malformed question does not discard the other.
+   */
+  async draftQuestions(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      QUESTION_DRAFT_SYSTEM,
+      questionDraftUserContent(input),
+      draftBatchJsonSchema,
+      looseDraftBatchSchema,
+    );
+    return { batch: value, meta: this.meta("curriculum", QUESTION_DRAFT_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

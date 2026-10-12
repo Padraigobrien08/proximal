@@ -7,6 +7,8 @@ export interface SelectableQuestion {
   familyId: string;
   isTransfer: boolean;
   status: QuestionStatus;
+  /** Practice-only questions are never selected for an independent check. */
+  practiceOnly?: boolean;
 }
 
 export interface SelectionResult {
@@ -19,14 +21,17 @@ export interface SelectionResult {
 /**
  * Independent checks and new learning: prefer never-attempted question families, then the least recently attempted family.
  * Ties: initial (non-transfer) families before transfer families, then by id.
- * Excluded questions are never selected.
+ * Excluded questions are never selected; practice-only questions are selected for practice only.
  */
 export function selectQuestion(
   questions: SelectableQuestion[],
   lastAttemptedAtByFamily: Map<string, number>,
   purpose: "check" | "practice" = "check",
+  /** Learning sessions order like a check (fresh families first) but may also use practice-only questions. */
+  opts: { allowPracticeOnly?: boolean } = {},
 ): SelectionResult | null {
-  const eligible = questions.filter((q) => q.status !== "excluded");
+  const allowPracticeOnly = purpose === "practice" || !!opts.allowPracticeOnly;
+  const eligible = questions.filter((q) => q.status !== "excluded" && (allowPracticeOnly || !q.practiceOnly));
   if (eligible.length === 0) return null;
   if (purpose === "practice") {
     // Targeted practice reuses the most recently attempted family so fresh families stay
