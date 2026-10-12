@@ -27,6 +27,8 @@ import {
   updateQuestionDraftContent,
   type QuestionDraftRow,
 } from "../db/questionDraftsRepo";
+import { enqueueJob, latestJob } from "../db/jobsRepo";
+import { notifyJobsQueued } from "../jobs/signal";
 import { ProviderError } from "../llm/types";
 import { checkDraftBatch, draftQuestionSchema, MAX_DRAFT_SOURCE_CHARS, questionProblems, type DraftQuestion } from "../questions/drafts";
 import type { AppContext } from "./context";
@@ -64,6 +66,17 @@ function unitPages(ctx: AppContext, courseId: string, unit: UnitRow): { page: nu
   return out.sort((a, b) => a.page - b.page);
 }
 
+/** The unit's pages, if there are any and they fit one drafting request. */
+function draftSourcePages(ctx: AppContext, courseId: string, unit: UnitRow): { page: number; text: string }[] {
+  const pages = unitPages(ctx, courseId, unit);
+  if (pages.length === 0) throw new AppError("unavailable_reviewed_content", "This subtopic has no extracted source pages to write questions from.");
+  const chars = pages.reduce((n, p) => n + p.text.length, 0);
+  if (chars > MAX_DRAFT_SOURCE_CHARS) {
+    throw new AppError("validation", `This subtopic's pages hold ${chars} characters (limit ${MAX_DRAFT_SOURCE_CHARS}). Split it into smaller subtopics first.`);
+  }
+  return pages;
+}
+
 function providerIdentity(ctx: AppContext): { mode: "mock" | "live"; model: string | null } {
   if (ctx.providerStatus.mode === "mock") return { mode: "mock", model: null };
   const model = ctx.providerStatus.models?.curriculum ?? ctx.provider.models?.curriculum ?? ctx.providerStatus.model ?? "unconfigured";
@@ -75,17 +88,25 @@ export function draftProviderLabel(d: Pick<QuestionDraftRow, "providerMode" | "p
 }
 
 /**
- * One bounded provider call for one skill. Valid questions are stored as drafts and malformed ones as `invalid`, so
+ * Queue drafting for one skill and return at once; the worker runs generateQuestionDrafts. The cheap checks run here
+ * too, so an impossible request fails immediately instead of as a background error. A second request while one is
+ * queued or running joins it.
+ */
+export function requestQuestionDrafts(ctx: AppContext, skillId: string) {
+  const { skill, unit, courseId } = ownedSkill(ctx, skillId);
+  draftSourcePages(ctx, courseId, unit);
+  enqueueJob(ctx.db, "draft_questions", skill.id, ctx.clock.now());
+  notifyJobsQueued();
+  return skillDraftsView(ctx, skill, unit);
+}
+
+/**
+ * One bounded provider call for one skill (run by the background worker). Valid questions are stored as drafts and malformed ones as `invalid`, so
  * a bad question never hides a good one. Earlier drafts and approved questions are untouched.
  */
 export async function generateQuestionDrafts(ctx: AppContext, skillId: string) {
   const { skill, unit, courseId, courseTitle } = ownedSkill(ctx, skillId);
-  const pages = unitPages(ctx, courseId, unit);
-  if (pages.length === 0) throw new AppError("unavailable_reviewed_content", "This subtopic has no extracted source pages to write questions from.");
-  const chars = pages.reduce((n, p) => n + p.text.length, 0);
-  if (chars > MAX_DRAFT_SOURCE_CHARS) {
-    throw new AppError("validation", `This subtopic's pages hold ${chars} characters (limit ${MAX_DRAFT_SOURCE_CHARS}). Split it into smaller subtopics first.`);
-  }
+  const pages = draftSourcePages(ctx, courseId, unit);
   if (!ctx.provider.draftQuestions) throw new AppError("provider_unavailable", "This provider cannot draft questions.");
 
   let res;
@@ -170,7 +191,15 @@ function skillDraftsView(ctx: AppContext, skill: SkillRow, unit: UnitRow) {
         createdAt: d.createdAt,
       })),
     rejectedCount: all.filter((d) => d.status === "rejected").length,
+    drafting: draftingState(ctx, skill.id),
   };
+}
+
+/** The latest drafting job for a skill: in progress, or failed with a safe message. Finished jobs are not shown. */
+function draftingState(ctx: AppContext, skillId: string): { status: "queued" | "running" | "failed"; error: string | null } | null {
+  const job = latestJob(ctx.db, "draft_questions", skillId);
+  if (!job || job.status === "done") return null;
+  return { status: job.status, error: job.error };
 }
 
 /** Review state for every current skill in an imported topic; `available` is false for demo or unapproved courses. */

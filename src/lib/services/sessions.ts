@@ -39,6 +39,9 @@ import { isUnfinished, type PlanSession } from "../domain/plan";
 import { MAX_ANSWER_CHARS } from "../llm/schemas";
 import { ProviderError } from "../llm/types";
 import { assessAttempt, type AssessResult } from "./assessments";
+import { enqueueJob, latestJob } from "../db/jobsRepo";
+import { runJobInline } from "../jobs/runner";
+import { notifyJobsQueued } from "../jobs/signal";
 import type { AppContext } from "./context";
 import { AppError, notFound } from "./errors";
 import { recentChatHelp } from "./chat";
@@ -428,9 +431,19 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
       (x) => !getAssessmentForAttempt(ctx.db, x.a.id) && !x.a.feedbackWithheld,
     );
     const skillIds = [...new Set(sqs.map((s) => s.skillId))];
+    const now = ctx.clock.now();
+    const grading = (a: AttemptRow) => {
+      if (a.status === "assessing" && (a.leaseUntil ?? 0) > now) return true;
+      const job = latestJob(ctx.db, "assess_attempt", a.id);
+      return a.status === "pending" && !!job && (job.status === "queued" || job.status === "running");
+    };
     results = {
       allAssessed: pending.length === 0,
       pendingAttemptIds: pending.map((x) => x.a.id),
+      /** Still being graded in the background: show progress, not a retry button. */
+      gradingAttemptIds: pending.filter((x) => grading(x.a)).map((x) => x.a.id),
+      /** Grading failed or stopped: the learner can retry explicitly. */
+      failedAttemptIds: pending.filter((x) => !grading(x.a)).map((x) => x.a.id),
       feedbackReleased: session.feedbackReleasedAt !== null,
       skills: skillIds.map((skillId) => {
         const skill = getSkill(ctx.db, skillId)!;
@@ -690,14 +703,24 @@ export async function submitAnswer(ctx: AppContext, sessionId: string, input: Su
   })();
 
   const { attempt, duplicate, session } = prepared;
+  const instructional = session.mode === "learn" || attempt.phase === "repair";
   // Polling/resubmitting never calls the provider again once an assessment exists.
   let assessment: AssessResult | null = null;
   const existingAssessment = getAssessmentForAttempt(ctx.db, attempt.id);
   if (existingAssessment) assessment = { status: "assessed", assessment: existingAssessment };
-  else if (!duplicate || attempt.status === "pending") assessment = await assessAttempt(ctx, attempt.id);
+  else if (!instructional) {
+    // Checkpoint answers are graded in the background: the learner sees "Answer saved" and moves on at once, and the
+    // results screen waits for the grades. A resend while it is still pending just re-queues (deduplicated).
+    if (!duplicate || attempt.status === "pending") {
+      const job = enqueueJob(ctx.db, "assess_attempt", attempt.id, ctx.clock.now());
+      if (ctx.inlineJobs) await runJobInline(ctx, job.id);
+      else notifyJobsQueued();
+    }
+    const latest = getAttemptByIdSafe(ctx, attempt.id);
+    assessment = latest.status === "provider_error" ? providerErrorResult(latest) : { status: latest.status === "assessing" ? "assessing" : "pending" };
+  } else if (!duplicate || attempt.status === "pending") assessment = await assessAttempt(ctx, attempt.id);
   else assessment = { status: attempt.status === "assessing" ? "assessing" : "pending" };
 
-  const instructional = session.mode === "learn" || attempt.phase === "repair";
   if (instructional && assessment.status === "assessed") {
     releaseAttemptFeedback(ctx, sessionId, attempt.id);
   }
@@ -708,6 +731,14 @@ export async function submitAnswer(ctx: AppContext, sessionId: string, input: Su
     // Never return checkpoint judgements before release.
     assessment: instructional ? assessment : assessment.status === "provider_error" ? assessment : null,
   };
+}
+
+/** A stored provider failure ("code: message", from the assessment lease) as a result. Saved failures are retryable. */
+function providerErrorResult(a: AttemptRow): Extract<AssessResult, { status: "provider_error" }> {
+  const raw = a.lastError ?? "provider_unavailable: The assessment didn't complete.";
+  const i = raw.indexOf(": ");
+  const code = (i > 0 ? raw.slice(0, i) : "provider_unavailable") as Extract<AssessResult, { status: "provider_error" }>["code"];
+  return { status: "provider_error", code, message: i > 0 ? raw.slice(i + 2) : raw, retryable: true };
 }
 
 /** Record a feedback exposure for one instructional attempt (learn mode / repair), then content may be shown. */

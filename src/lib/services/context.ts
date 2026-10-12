@@ -19,4 +19,9 @@ export interface AppContext {
   provider: LearningProvider;
   providerStatus: ProviderStatusLike;
   timezone: string;
+  /**
+   * Run queued jobs before returning instead of handing them to the background worker. Tests use this so a submitted
+   * check answer is graded by the time submitAnswer resolves; the queue path itself is tested separately.
+   */
+  inlineJobs?: boolean;
 }

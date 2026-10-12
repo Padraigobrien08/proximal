@@ -49,7 +49,9 @@ test("sample PDF import: extraction, draft edit, explicit approval, page refs, r
   await page.reload();
   const panel = page.getByTestId("question-drafts");
   await panel.getByTestId(/^draft-questions-/).first().click();
-  await expect(panel.getByText("Draft questions ready.")).toBeVisible();
+  await expect(panel.getByText("Drafting in the background.")).toBeVisible();
+  // The panel polls the background job until the drafts appear.
+  await expect(panel.getByTestId("approve-checks").first()).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByTestId("answer-key")).toHaveCount(0);
   await panel.getByTestId("approve-checks").first().click();
   await expect(panel.getByText("Approved for no-help checks.")).toBeVisible();

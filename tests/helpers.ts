@@ -27,6 +27,7 @@ export async function createTestContext(opts: { provider?: (db: AppContext["db"]
     provider,
     providerStatus: { mode, model: provider.model, ready: true, message: mode },
     timezone: "Europe/London",
+    inlineJobs: true,
   };
   return {
     ctx,
