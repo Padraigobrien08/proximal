@@ -125,7 +125,8 @@ export const curriculumJsonSchema: Record<string, unknown> = {
 };
 
 /**
- * A whole document needs 3-8 units; one part of a longer document needs 1-8 (a short final part may hold little).
+ * A whole document needs 3-8 units (only as many as it has pages, when it has fewer than 3); one part of a longer
+ * document needs 1-8 (a short final part may hold little).
  * Every page reference must be one of the pages that request actually sent.
  */
 export function validateCurriculumDraft(
@@ -134,7 +135,7 @@ export function validateCurriculumDraft(
 ): string[] {
   const problems: string[] = [];
   const units = draft.topics.flatMap((t) => t.units);
-  const min = opts.part ? 1 : 3;
+  const min = opts.part ? 1 : Math.max(1, Math.min(3, opts.pages.length));
   if (units.length < min || units.length > 8) problems.push(`expected ${min}-8 units, got ${units.length}`);
   const allowed = new Set(opts.pages);
   const range = opts.pages.length ? `${Math.min(...opts.pages)}-${Math.max(...opts.pages)}` : "none";
@@ -163,4 +164,18 @@ export const chatJsonSchema: Record<string, unknown> = {
   },
   required: ["answer", "citedRefs", "coveredBySources"],
   additionalProperties: false,
+};
+
+export const MAX_TRANSCRIPTION_CHARS = 20_000;
+
+export const transcriptionSchema = z.strictObject({
+  text: z.string().max(MAX_TRANSCRIPTION_CHARS),
+  legible: z.boolean(),
+});
+
+export const transcriptionJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["text", "legible"],
+  properties: { text: { type: "string" }, legible: { type: "boolean" } },
 };

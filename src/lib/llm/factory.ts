@@ -55,6 +55,9 @@ class UnavailableProvider implements LearningProvider {
   async draftQuestions(): Promise<never> {
     this.fail();
   }
+  async transcribePage(): Promise<never> {
+    this.fail();
+  }
 }
 
 export function fixtureCurriculumDraft(): CurriculumDraft {

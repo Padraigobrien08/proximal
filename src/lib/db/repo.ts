@@ -388,22 +388,36 @@ export interface SourcePageRow {
   pageNumber: number;
   text: string;
   lowTextWarning: boolean;
+  /** vendor:model that transcribed this page from its image; null when the text came from the PDF itself. */
+  transcribedBy: string | null;
 }
 
-export function replaceSourcePages(db: DB, sourceId: string, pages: { pageNumber: number; text: string; lowTextWarning: boolean }[]) {
+export function replaceSourcePages(
+  db: DB,
+  sourceId: string,
+  pages: { pageNumber: number; text: string; lowTextWarning: boolean; transcribedBy?: string | null }[],
+) {
   db.prepare("DELETE FROM source_pages WHERE source_id = ?").run(sourceId);
   const ins = db.prepare(
-    "INSERT INTO source_pages (source_id, page_number, extracted_text, low_text_warning) VALUES (?, ?, ?, ?)",
+    "INSERT INTO source_pages (source_id, page_number, extracted_text, low_text_warning, transcribed_by) VALUES (?, ?, ?, ?, ?)",
   );
-  for (const p of pages) ins.run(sourceId, p.pageNumber, p.text, p.lowTextWarning ? 1 : 0);
+  for (const p of pages) ins.run(sourceId, p.pageNumber, p.text, p.lowTextWarning ? 1 : 0, p.transcribedBy ?? null);
 }
 
 export function listSourcePages(db: DB, sourceId: string): SourcePageRow[] {
   return (
     db
-      .prepare("SELECT source_id, page_number, extracted_text, low_text_warning FROM source_pages WHERE source_id = ? ORDER BY page_number")
-      .all(sourceId) as { source_id: string; page_number: number; extracted_text: string; low_text_warning: number }[]
-  ).map((r) => ({ sourceId: r.source_id, pageNumber: r.page_number, text: r.extracted_text, lowTextWarning: !!r.low_text_warning }));
+      .prepare(
+        "SELECT source_id, page_number, extracted_text, low_text_warning, transcribed_by FROM source_pages WHERE source_id = ? ORDER BY page_number",
+      )
+      .all(sourceId) as { source_id: string; page_number: number; extracted_text: string; low_text_warning: number; transcribed_by: string | null }[]
+  ).map((r) => ({
+    sourceId: r.source_id,
+    pageNumber: r.page_number,
+    text: r.extracted_text,
+    lowTextWarning: !!r.low_text_warning,
+    transcribedBy: r.transcribed_by,
+  }));
 }
 
 // ---------------------------------------------------------------- questions

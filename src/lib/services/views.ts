@@ -488,6 +488,7 @@ export function getCourseView(ctx: AppContext, courseId: string) {
     pages: listSourcePages(ctx.db, s.id).map((p) => ({
       page: p.pageNumber,
       lowTextWarning: p.lowTextWarning,
+      transcribedBy: p.transcribedBy,
       charCount: p.text.replace(/\s/g, "").length,
       // Page text is shown only for draft review (before any study).
       text: course.status === "draft" ? p.text : null,

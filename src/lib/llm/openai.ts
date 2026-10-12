@@ -17,6 +17,9 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  TRANSCRIBE_PROMPT_VERSION,
+  TRANSCRIBE_SYSTEM,
+  transcribeUserText,
   QUESTION_DRAFT_SYSTEM,
   questionDraftUserContent,
   PACER_SYSTEM,
@@ -25,7 +28,16 @@ import {
 import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
 import { draftBatchJsonSchema, looseDraftBatchSchema } from "../questions/drafts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
-import { assessorJsonSchema, chatJsonSchema, chatReplySchema, curriculumDraftSchema, curriculumJsonSchema, looseAssessorOutputSchema } from "./schemas";
+import {
+  assessorJsonSchema,
+  chatJsonSchema,
+  chatReplySchema,
+  curriculumDraftSchema,
+  curriculumJsonSchema,
+  looseAssessorOutputSchema,
+  transcriptionJsonSchema,
+  transcriptionSchema,
+} from "./schemas";
 import {
   ProviderError,
   type AssessmentInput,
@@ -38,6 +50,9 @@ import {
   type ChatReply,
   type PacerClassifyInput,
   type QuestionDraftInput,
+  type TranscribeInput,
+  type PageTranscription,
+  type UserContent,
 } from "./types";
 
 export const OPENAI_TIMEOUT_MS = 60_000;
@@ -58,7 +73,16 @@ export interface OpenAIProviderOptions {
 }
 
 type Usage = ProviderMeta["usage"];
-type InputMessage = { role: "user" | "assistant"; content: string };
+type InputMessage = { role: "user" | "assistant"; content: string | OpenAI.Responses.ResponseInputMessageContentList };
+
+function toOpenAIContent(content: UserContent): InputMessage["content"] {
+  if (typeof content === "string") return content;
+  return content.map((c) =>
+    c.type === "text"
+      ? { type: "input_text" as const, text: c.text }
+      : { type: "input_image" as const, image_url: `data:${c.mediaType};base64,${c.base64}`, detail: "high" as const },
+  );
+}
 
 /**
  * OpenAI adapter over the Responses API. Same contract as the Claude adapter: instructions carry the role,
@@ -146,18 +170,18 @@ export class OpenAIProvider implements LearningProvider {
   private async structured<T>(
     job: LlmJob,
     instructions: string,
-    content: string,
+    content: UserContent,
     schema: { name: string; schema: Record<string, unknown> },
     zodSchema: z.ZodType<T>,
   ): Promise<{ value: T; usage: Usage }> {
-    const first = await this.call({ job, instructions, input: [{ role: "user", content }], schema });
+    const first = await this.call({ job, instructions, input: [{ role: "user", content: toOpenAIContent(content) }], schema });
     const parsed = safeParse(first.text, zodSchema);
     if (parsed.ok) return { value: parsed.value, usage: first.usage };
     const repair = await this.call({
       job,
       instructions,
       input: [
-        { role: "user", content },
+        { role: "user", content: toOpenAIContent(content) },
         { role: "assistant", content: first.text.slice(0, 8000) || "{}" },
         {
           role: "user",
@@ -235,6 +259,21 @@ export class OpenAIProvider implements LearningProvider {
       looseDraftBatchSchema,
     );
     return { batch: value, meta: this.meta("curriculum", QUESTION_DRAFT_PROMPT_VERSION, usage) };
+  }
+
+  /** Scanned-page transcription under the curriculum job's model. The image goes in the user turn as data. */
+  async transcribePage(input: TranscribeInput): Promise<{ transcription: PageTranscription; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      TRANSCRIBE_SYSTEM,
+      [
+        { type: "image", mediaType: input.image.mediaType, base64: input.image.base64 },
+        { type: "text", text: transcribeUserText(input.page) },
+      ],
+      { name: "page_transcription", schema: transcriptionJsonSchema },
+      transcriptionSchema,
+    );
+    return { transcription: value, meta: this.meta("curriculum", TRANSCRIBE_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

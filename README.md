@@ -61,7 +61,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
-| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,pacer,questions]` | One real call per provider job (10 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]` | One real call per provider job (11 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -309,9 +309,17 @@ and sessions keep a frozen copy). Then run `npm run db:seed`. Use `--status excl
 - Validates the `%PDF` signature. Encrypted and malformed files get actionable errors. Files are stored under
   `$PROXIMAL_DATA_DIR/uploads/` with a random name.
 - Text is extracted per page, with text-item boundaries preserved. A page with fewer than 40 non-whitespace characters gets a
-  low-text warning; this is a heuristic. A PDF with no extractable text is rejected as likely scanned (OCR is not supported).
-- Live mode asks for 3–8 units with 1–3 skills each and validates every page reference. **Long PDFs are drafted in parts**
-  (`src/lib/content/chunking.ts`, prompt `curriculum-v2`): balanced runs of whole consecutive pages of about 60,000 characters
+  low-text warning; this is a heuristic.
+- **Scanned pages are read from images in live mode.** Each low-text page is rendered to a 1600-pixel JPEG (`src/lib/pdf/render.ts`,
+  pdf.js drawing onto `@napi-rs/canvas`) and transcribed by the curriculum job's model (prompt `page-transcribe-v1`): text in
+  reading order, mathematics as LaTeX, diagrams as one-line `[Figure: ...]` notes. Only pages without a text layer are sent, and
+  **their images leave this machine** for the provider. Each costs roughly 1–2k input tokens; a 20-page scan is about 20 metered
+  calls. The source view labels them "read from image by AI", because transcriptions can misread symbols. An illegible page keeps its
+  warning; a document with nothing readable is rejected; a provider failure fails the import, retryably, with no course stored.
+  Offline mode rejects image-only PDFs and explains that reading page images needs a live provider. The live smoke test transcribed
+  a scanned BCE formula page correctly (`gpt-5.5-2026-04-23`, 2026-10-12).
+- Live mode asks for 3–8 units with 1–3 skills each (fewer for a one- or two-page document) and validates every page reference. **Long PDFs are drafted in parts**
+  (`src/lib/content/chunking.ts`, prompt `curriculum-v3`): balanced runs of whole consecutive pages of about 60,000 characters
   (never over 80,000), so no page is split, dropped or sent twice. Each part is asked for 1–8 units citing only its own pages and is
   validated against them. The parts are merged in page order, and a topic that continues across a boundary is joined. Any failing
   part fails the whole import, so no partial course is stored. More than 8 parts, or one page over 80,000 characters, is rejected
@@ -405,7 +413,7 @@ draft edit, approval, page references and disabled review.
 - **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
   fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
   do not set it in normal use.
-- **Not implemented** (deferred by the brief): authentication, hosting, OCR and vision import, semantic
+- **Not implemented** (deferred by the brief): authentication, hosting, semantic
   deduplication, probabilistic mastery, notifications, analytics, dispute resolution, and sophisticated history
   migration beyond the new-version duplicate described above.
 - **No claims of learning gains, verified closed-book performance, participant data or human content review are made.**

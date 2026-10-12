@@ -11,7 +11,7 @@ interface ImportResult {
   reused: boolean;
   curriculum: "generated" | "fixture" | "manual_required";
   message: string;
-  pages: { page: number; lowTextWarning: boolean; charCount: number }[];
+  pages: { page: number; lowTextWarning: boolean; charCount: number; transcribed: boolean }[];
 }
 
 export function ImportPanel() {

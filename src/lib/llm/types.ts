@@ -67,6 +67,22 @@ export interface QuestionDraftInput {
   sourcePages: { page: number; text: string }[];
 }
 
+/** User-turn content: plain text, or text and images (page transcription). */
+export type UserContent = string | ({ type: "text"; text: string } | { type: "image"; mediaType: "image/jpeg" | "image/png"; base64: string })[];
+
+export interface TranscribeInput {
+  /** PDF page number, for the prompt and the record. */
+  page: number;
+  /** The rendered page. Untrusted data. */
+  image: { mediaType: "image/jpeg" | "image/png"; base64: string };
+}
+
+export interface PageTranscription {
+  text: string;
+  /** False when the page is blank, illegible or has no lecture content; its text is then not used. */
+  legible: boolean;
+}
+
 export type LiveVendor = "anthropic" | "openai";
 
 export interface ProviderMeta {
@@ -100,6 +116,8 @@ export interface LearningProvider {
    * review and never used in a check until approved.
    */
   draftQuestions?(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }>;
+  /** Transcribe one scanned page image into text (live only). Metered as the curriculum job. */
+  transcribePage?(input: TranscribeInput): Promise<{ transcription: PageTranscription; meta: ProviderMeta }>;
 }
 
 export class ProviderError extends Error {
@@ -118,4 +136,6 @@ export const OFFLINE_CURRICULUM_MESSAGE = "Offline mode cannot generate a curric
 export const OFFLINE_CHAT_MESSAGE = "Offline mode has no AI chat. Showing the most relevant lecture pages instead.";
 export const OFFLINE_PACER_MESSAGE = "Offline mode has authored classifications for the curated demo contexts only.";
 export const OFFLINE_QUESTION_DRAFT_MESSAGE = "Offline mode can only prepare questions for the authored sample lecture.";
+export const OFFLINE_OCR_MESSAGE =
+  "No extractable text was found. This looks like a scanned or image-only PDF; reading page images needs a live provider (LLM_MODE=openai or anthropic).";
 export const OFFLINE_TUTOR_MESSAGE = "Offline mode has no tutor. Only the checked fixture explanations are available.";

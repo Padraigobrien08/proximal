@@ -17,6 +17,9 @@ import {
   type ChatReply,
   type PacerClassifyInput,
   type QuestionDraftInput,
+  type TranscribeInput,
+  type PageTranscription,
+  OFFLINE_OCR_MESSAGE,
 } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -201,6 +204,11 @@ export class MeteredProvider implements LearningProvider {
     const inner = this.inner;
     if (!inner.classifyPacer) return Promise.reject(new ProviderError("This provider cannot classify learning objectives.", "provider_unavailable", false));
     return this.run("curriculum", () => inner.classifyPacer!(input));
+  }
+  transcribePage(input: TranscribeInput): Promise<{ transcription: PageTranscription; meta: ProviderMeta }> {
+    const inner = this.inner;
+    if (!inner.transcribePage) return Promise.reject(new ProviderError(OFFLINE_OCR_MESSAGE, "offline_unsupported", false));
+    return this.run("curriculum", () => inner.transcribePage!(input));
   }
   draftQuestions(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }> {
     const inner = this.inner;

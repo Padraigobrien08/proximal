@@ -28,10 +28,11 @@ import {
   updateUnit,
   deleteUnit,
 } from "../db/repo";
-import { extractPdfText, MAX_PDF_BYTES, PdfImportError } from "../pdf/extract";
+import { extractPdfText, LOW_TEXT_THRESHOLD, MAX_PDF_BYTES, PdfImportError, type ExtractedPage } from "../pdf/extract";
+import { renderPagesAsJpeg } from "../pdf/render";
 import { mergeCurriculumDrafts, planCurriculumParts, type CurriculumPart } from "../content/chunking";
 import { validateCurriculumDraft } from "../llm/schemas";
-import { ProviderError, type CurriculumDraft } from "../llm/types";
+import { OFFLINE_OCR_MESSAGE, ProviderError, type CurriculumDraft } from "../llm/types";
 import type { AppContext } from "./context";
 import { AppError, notFound } from "./errors";
 
@@ -40,6 +41,22 @@ import { AppError, notFound } from "./errors";
  * against its own pages. Any failing part fails the whole import, so a partial curriculum is never stored as if
  * complete. A single-part document is sent exactly as before, without part markers.
  */
+/**
+ * Render each scanned page and have the live model transcribe it, at most `concurrency`-many at once through the
+ * metered provider. Any provider failure fails the import (retryable); an illegible page is kept with its warning.
+ */
+async function transcribePages(ctx: AppContext, bytes: Uint8Array, pageNumbers: number[]): Promise<Map<number, { text: string; legible: boolean; by: string }>> {
+  if (!ctx.provider.transcribePage) throw new AppError("provider_unavailable", "This provider cannot read page images.");
+  const rendered = await renderPagesAsJpeg(bytes, pageNumbers);
+  const results = await Promise.all(
+    rendered.map(async (r) => {
+      const { transcription, meta } = await ctx.provider.transcribePage!({ page: r.page, image: { mediaType: "image/jpeg", base64: r.jpeg.toString("base64") } });
+      return [r.page, { ...transcription, by: `${meta.vendor ?? "live"}:${meta.model}` }] as const;
+    }),
+  );
+  return new Map(results);
+}
+
 export async function draftCurriculumInParts(
   ctx: AppContext,
   doc: { sha256: string; fileName: string; pageCount: number },
@@ -71,7 +88,7 @@ export interface ImportResult {
   reused: boolean;
   curriculum: "generated" | "fixture" | "manual_required";
   message: string;
-  pages: { page: number; lowTextWarning: boolean; charCount: number }[];
+  pages: { page: number; lowTextWarning: boolean; charCount: number; transcribed: boolean }[];
 }
 
 export async function importPdf(
@@ -96,7 +113,12 @@ export async function importPdf(
         course.status === "approved"
           ? "This PDF was already imported and approved. Opening the existing course."
           : "This PDF was already imported. Opening the existing draft.",
-      pages: listSourcePages(ctx.db, prior.id).map((p) => ({ page: p.pageNumber, lowTextWarning: p.lowTextWarning, charCount: p.text.replace(/\s/g, "").length })),
+      pages: listSourcePages(ctx.db, prior.id).map((p) => ({
+        page: p.pageNumber,
+        lowTextWarning: p.lowTextWarning,
+        charCount: p.text.replace(/\s/g, "").length,
+        transcribed: p.transcribedBy !== null,
+      })),
     };
   }
 
@@ -119,7 +141,7 @@ export async function importPdf(
     createdAt: now,
   });
 
-  let pages;
+  let pages: ExtractedPage[];
   try {
     pages = await extractPdfText(file.bytes);
   } catch (err) {
@@ -127,9 +149,29 @@ export async function importPdf(
     updateSource(ctx.db, sourceId, { status: "failed", error: message });
     throw new AppError("pdf_rejected", message);
   }
+  // Pages with (almost) no extractable text are probably scanned: a live provider reads them from a rendered image.
+  let transcribed: Map<number, { text: string; legible: boolean; by: string }> = new Map();
+  const scanned = pages.filter((p) => p.lowTextWarning).map((p) => p.pageNumber);
+  if (scanned.length > 0 && ctx.providerStatus.mode === "live") {
+    try {
+      transcribed = await transcribePages(ctx, file.bytes, scanned);
+    } catch (err) {
+      const e = err instanceof ProviderError ? new AppError(err.code, err.message, err.retryable) : err instanceof AppError ? err : null;
+      if (!e) throw err;
+      updateSource(ctx.db, sourceId, { status: "failed", error: e.message, pageCount: pages.length });
+      throw e;
+    }
+    pages = pages.map((p) => {
+      const t = transcribed.get(p.pageNumber);
+      if (!t || !t.legible) return p;
+      return { ...p, text: t.text.trim(), lowTextWarning: t.text.replace(/\s/g, "").length < LOW_TEXT_THRESHOLD };
+    });
+  }
   if (pages.every((p) => p.lowTextWarning)) {
     const message =
-      "No extractable text was found. This looks like a scanned or image-only PDF; OCR is not supported in this version.";
+      scanned.length === 0 || ctx.providerStatus.mode !== "live"
+        ? OFFLINE_OCR_MESSAGE
+        : "No readable text was found, even after reading the page images. Check that the scan is legible.";
     updateSource(ctx.db, sourceId, { status: "failed", error: message, pageCount: pages.length });
     throw new AppError("pdf_rejected", message);
   }
@@ -173,7 +215,10 @@ export async function importPdf(
     replaceSourcePages(
       ctx.db,
       sourceId,
-      pages.map((p) => ({ pageNumber: p.pageNumber, text: p.text, lowTextWarning: p.lowTextWarning })),
+      pages.map((p) => {
+        const t = transcribed.get(p.pageNumber);
+        return { pageNumber: p.pageNumber, text: p.text, lowTextWarning: p.lowTextWarning, transcribedBy: t?.legible ? t.by : null };
+      }),
     );
     updateSource(ctx.db, sourceId, { status: "extracted", pageCount: pages.length, courseId, error: null });
     ctx.db.prepare("UPDATE sources SET label = ? WHERE id = ?").run(isSample ? "Authored sample lecture" : originalName, sourceId);
@@ -210,13 +255,19 @@ export async function importPdf(
     curriculum = "manual_required";
     message = "Offline mode cannot generate a curriculum for this file. Text was extracted; add objectives manually.";
   }
+  const transcribedCount = [...transcribed.values()].filter((t) => t.legible).length;
   return {
     courseId,
     sourceId,
     reused: false,
     curriculum,
-    message: message!,
-    pages: pages.map((p) => ({ page: p.pageNumber, lowTextWarning: p.lowTextWarning, charCount: p.text.replace(/\s/g, "").length })),
+    message: transcribedCount > 0 ? `${message!} ${transcribedCount} scanned page${transcribedCount === 1 ? " was" : "s were"} read from images by the AI; check their text.` : message!,
+    pages: pages.map((p) => ({
+      page: p.pageNumber,
+      lowTextWarning: p.lowTextWarning,
+      charCount: p.text.replace(/\s/g, "").length,
+      transcribed: !!transcribed.get(p.pageNumber)?.legible,
+    })),
   };
 }
 
