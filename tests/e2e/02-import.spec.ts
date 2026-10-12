@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 
-test("sample PDF import: extraction, draft edit, explicit approval, page refs, review disabled", async ({ page }) => {
+test("sample PDF import: extraction, draft edit, explicit approval, page refs, review disabled until a question is approved", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("toggle-import").click();
   await page.getByTestId("import-file").setInputFiles(path.resolve("fixtures/sample-lecture.pdf"));
@@ -40,8 +40,29 @@ test("sample PDF import: extraction, draft edit, explicit approval, page refs, r
 
   // Imported topic: no-help checks disabled with an honest reason.
   await firstTopic.click();
-  await expect(page.getByText("No-help checks are disabled until an owner-authored")).toBeVisible();
+  await expect(page.getByText("No-help checks need an approved question.")).toBeVisible();
   await page.getByTestId("choose-study").click();
   await expect(page.getByTestId("start-review")).toBeDisabled();
   await expect(page.getByTestId("start-review")).toContainText("Reviewed assessment questions needed.");
+
+  // Draft questions (offline: the authored sample bank), key closed; approving one for checks enables review.
+  await page.reload();
+  const panel = page.getByTestId("question-drafts");
+  await panel.getByTestId(/^draft-questions-/).first().click();
+  await expect(panel.getByText("Draft questions ready.")).toBeVisible();
+  await expect(panel.getByTestId("answer-key")).toHaveCount(0);
+  await panel.getByTestId("approve-checks").first().click();
+  await expect(panel.getByText("Approved for no-help checks.")).toBeVisible();
+  await expect(panel.getByText("Used in checks", { exact: true })).toBeVisible();
+
+  // Opening the second draft's key leaves only practice approval.
+  await panel.getByTestId("reveal-key").first().click();
+  await panel.getByTestId("confirm-reveal").click();
+  await expect(panel.getByTestId("answer-key")).toBeVisible();
+  await expect(panel.getByTestId("approve-checks")).toHaveCount(0);
+  await panel.getByTestId("approve-practice").click();
+  await expect(panel.getByText("Practice only", { exact: true })).toBeVisible();
+
+  await page.getByTestId("choose-study").click();
+  await expect(page.getByTestId("start-review")).toBeEnabled();
 });

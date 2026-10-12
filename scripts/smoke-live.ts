@@ -1,7 +1,7 @@
-// Live smoke test: one real call per provider job (assessment, tutor, chat, curriculum, PACER classification), run
+// Live smoke test: one real call per provider job (assessment, tutor, chat, curriculum, PACER, question drafts), run
 // through the same services and validators the app uses. Learner data is never touched: the demo is seeded into a
 // temporary database. Calls are metered into the app database (npm run usage) and respect the daily caps.
-// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer]
+// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer,questions]
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,13 +17,14 @@ import { askChat } from "../src/lib/services/chat";
 import type { AppContext } from "../src/lib/services/context";
 import { importPdf } from "../src/lib/services/imports";
 import { classifyTopic } from "../src/lib/services/pacer";
+import { checkDraftBatch } from "../src/lib/questions/drafts";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
-const JOBS = ["assess", "tutor", "chat", "curriculum", "pacer"] as const;
+const JOBS = ["assess", "tutor", "chat", "curriculum", "pacer", "questions"] as const;
 type Job = (typeof JOBS)[number];
 // Paid calls per job, so the confirmation message is exact.
-const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, pacer: 1 };
+const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, pacer: 1, questions: 1 };
 
 loadDotEnv();
 const only = arg("only")?.split(",").map((s) => s.trim()) as Job[] | undefined;
@@ -151,6 +152,23 @@ if (jobs.includes("pacer")) {
     const ok = res.classified > 0 && !statuses.includes("invalid") && !statuses.includes("error");
     const problems = res.batchProblems.length ? `; problems: ${res.batchProblems.join("; ")}` : "";
     return { ok, detail: `${res.classified} classified, statuses ${statuses.join("/")}${problems}` };
+  });
+}
+
+// Question drafts for the calculation objective, checked by the same validator the app stores drafts with.
+if (jobs.includes("questions")) {
+  await check("question drafts", async () => {
+    const pages = fixtures.lecture.pages.filter((p) => p.page === 5).map((p) => ({ page: p.page, text: pageText(p) }));
+    const { batch, meta } = await provider.draftQuestions({
+      courseTitle: "Smoke test",
+      unitTitle: "Calculation and application",
+      objective: "Calculate BCE and use aggregate losses to compare predictions",
+      sourcePages: pages,
+    });
+    const { drafts, batchProblems } = checkDraftBatch(batch, [5]);
+    const problems = [...batchProblems, ...drafts.flatMap((d) => (d.ok ? [] : d.problems))];
+    const valid = drafts.filter((d) => d.ok).length;
+    return { ok: valid === 2 && problems.length === 0, detail: `${valid}/2 valid (${meta.model})${problems.length ? `; problems: ${problems.join("; ")}` : ""}` };
   });
 }
 
