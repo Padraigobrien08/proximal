@@ -25,8 +25,8 @@ afterEach(() => {
 });
 
 /** An approved import of the sample lecture (offline fixture curriculum). Returns the BCE-calculation skill. */
-async function importedCourse(provider?: (db: Parameters<typeof createMockProvider>[0]) => LearningProvider) {
-  const t = await createTestContext(provider ? { provider, mode: "mock" } : {});
+async function importedCourse(provider?: (db: Parameters<typeof createMockProvider>[0]) => LearningProvider, mode: "mock" | "live" = "mock") {
+  const t = await createTestContext(provider ? { provider, mode } : {});
   cleanup = t.cleanup;
   const res = await importPdf(t.ctx, t.dir, { name: "lecture.pdf", bytes: readFileSync(SAMPLE_PDF_PATH) });
   approveCourse(t.ctx, res.courseId);
@@ -171,6 +171,69 @@ describe("question drafts for imported courses", () => {
 function getTopicId(ctx: Awaited<ReturnType<typeof createTestContext>>["ctx"], skillId: string): string {
   return (ctx.db.prepare("SELECT u.topic_id AS t FROM skills s JOIN units u ON u.id = s.unit_id WHERE s.id = ?").get(skillId) as { t: string }).t;
 }
+
+describe("marking check on live drafts", () => {
+  const explain = (over: Partial<DraftQuestion> = {}) =>
+    validQuestion({
+      taskType: "explain",
+      prompt: "Why does a confident wrong prediction get a large BCE?",
+      numericChecks: [],
+      examples: [
+        { label: "correct", answer: "Because -log of a small true-label probability is large.", expectedOutcome: "pass" },
+        { label: "wrong", answer: "Because accuracy drops.", expectedOutcome: "fail" },
+      ],
+      ...over,
+    });
+
+  /** Live-mode drafts with a stub assessor: `grade` decides each criterion's status from the answer. */
+  async function live(grade: (answer: string) => "met" | "not_met" | Error) {
+    return importedCourse((db) => {
+      const mock = createMockProvider(db);
+      mock.draftQuestions = async () => ({
+        batch: { questions: [explain(), explain({ familyRole: "new_context", transferChange: "Compares two models instead.", prompt: "Same accuracy, same BCE?" })] },
+        meta: { mode: "live", vendor: "openai", model: "drafter", promptVersion: "t", usage: null },
+      });
+      mock.assessAnswer = async (input) => {
+        const g = grade(input.answer);
+        if (g instanceof Error) throw g;
+        return {
+          output: {
+            criteria: input.rubric.criteria.map((c) => ({ criterionId: c.id, status: g, answerQuote: g === "met" ? input.answer : null, briefReason: "stub" })),
+            possibleMisconception: null,
+          },
+          meta: { mode: "live", vendor: "openai", model: "grader", promptVersion: "t", usage: null },
+        };
+      };
+      return mock;
+    }, "live");
+  }
+
+  it("passes when the grader marks every example as labelled, and only then allows approval for checks", async () => {
+    const { ctx, skillId } = await live((a) => (a.includes("-log") ? "met" : "not_met"));
+    const { skill } = await generateQuestionDrafts(ctx, skillId);
+    expect(skill.pending[0].selfCheck).toMatchObject({ status: "passed", stale: false });
+    // Outcomes only: the example answers are not exposed with the key closed.
+    expect(JSON.stringify(skill.pending[0])).not.toContain("small true-label probability");
+    expect(approveQuestionDraft(ctx, skill.pending[0].id, "checks").questions).toHaveLength(1);
+  });
+
+  it("fails when the scheme passes its own wrong example, and blocks approval for checks but not for practice", async () => {
+    const { ctx, skillId } = await live(() => "met");
+    const { skill } = await generateQuestionDrafts(ctx, skillId);
+    const d = skill.pending[0];
+    expect(d.selfCheck).toMatchObject({ status: "failed", message: expect.stringMatching(/wrong example was graded pass/) });
+    expect(() => approveQuestionDraft(ctx, d.id, "checks")).toThrow(/can't be approved for checks/);
+    revealDraftAnswerKey(ctx, d.id);
+    expect(approveQuestionDraft(ctx, d.id, "practice").questions[0].practiceOnly).toBe(true);
+  });
+
+  it("records an unreachable grader as an untested scheme that cannot be approved for checks", async () => {
+    const { ctx, skillId } = await live(() => new ProviderError("rate limited", "provider_unavailable", true));
+    const { skill } = await generateQuestionDrafts(ctx, skillId);
+    expect(skill.pending[0].selfCheck).toMatchObject({ status: "error", message: expect.stringMatching(/could not run: rate limited/) });
+    expect(() => approveQuestionDraft(ctx, skill.pending[0].id, "checks")).toThrow(/hasn't been tested/);
+  });
+});
 
 describe("checkDraftBatch", () => {
   it("checks each question on its own and the pair as a whole", () => {

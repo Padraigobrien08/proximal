@@ -6,6 +6,15 @@ type DB = Database.Database;
 
 export type QuestionDraftStatus = "draft" | "approved" | "rejected" | "invalid";
 
+/** The live assessor's grades for a draft's own example answers, against the draft's own marking scheme. */
+export interface DraftSelfCheck {
+  /** passed: every example graded as labelled (a partial graded fail is tolerated). failed: a correct example did not
+   *  pass, or a partial/wrong one passed. error: the assessor could not be reached. skipped: offline mode. */
+  status: "passed" | "failed" | "error" | "skipped";
+  results: { label: "correct" | "partial" | "wrong"; expected: string; got: string }[];
+  message: string;
+}
+
 export interface QuestionDraftRow {
   id: string;
   skillId: string;
@@ -19,6 +28,7 @@ export interface QuestionDraftRow {
   edited: boolean;
   /** The owner opened the answer key; the draft can then only become a practice question. */
   answerSeen: boolean;
+  selfCheck: DraftSelfCheck | null;
   providerMode: "mock" | "live";
   providerModel: string | null;
   promptVersion: string;
@@ -38,6 +48,7 @@ interface RawDraft {
   problems_json: string;
   edited: number;
   answer_seen: number;
+  self_check_json: string | null;
   provider_mode: "mock" | "live";
   provider_model: string | null;
   prompt_version: string;
@@ -57,6 +68,7 @@ const mapDraft = (r: RawDraft): QuestionDraftRow => ({
   problems: JSON.parse(r.problems_json),
   edited: !!r.edited,
   answerSeen: !!r.answer_seen,
+  selfCheck: r.self_check_json ? JSON.parse(r.self_check_json) : null,
   providerMode: r.provider_mode,
   providerModel: r.provider_model,
   promptVersion: r.prompt_version,
@@ -72,8 +84,8 @@ export function insertQuestionDraft(
   const id = newId();
   db.prepare(
     `INSERT INTO question_drafts (id, skill_id, skill_version, batch_id, position, status, question_json, problems_json,
-       provider_mode, provider_model, prompt_version, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       provider_mode, provider_model, prompt_version, created_at, self_check_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     d.skillId,
@@ -87,6 +99,7 @@ export function insertQuestionDraft(
     d.providerModel,
     d.promptVersion,
     d.createdAt,
+    d.selfCheck ? JSON.stringify(d.selfCheck) : null,
   );
   return id;
 }
