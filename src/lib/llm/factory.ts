@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import type Database from "better-sqlite3";
 import { z } from "zod";
-import { SAMPLE_PDF_PATH, loadFixtures } from "../content/fixtures";
+import { SAMPLE_PDF_PATH, loadFixtures, loadPacerDevCases } from "../content/fixtures";
+import { contextHash, type PacerObjectiveInput } from "../pacer/validation";
 import type { ExampleFixture } from "../content/schemas";
 import { readEnv, requestedVendor, type AppEnv } from "../env";
 import { ClaudeProvider } from "./claude";
@@ -48,6 +49,9 @@ class UnavailableProvider implements LearningProvider {
   async tutor(): Promise<never> {
     this.fail();
   }
+  async classifyPacer(): Promise<never> {
+    this.fail();
+  }
 }
 
 export function fixtureCurriculumDraft(): CurriculumDraft {
@@ -64,6 +68,18 @@ export function fixtureCurriculumDraft(): CurriculumDraft {
     })),
     suggestions: ["Optional extension: numerical care at p = 0 or p = 1 (clipping, working with logits)."],
   };
+}
+
+let annotationCache: Map<string, Record<string, unknown>> | null = null;
+
+/** Offline PACER annotations keyed by exact context hash: demo skills (authored hashes) and the development set. */
+export function pacerAnnotations(): Map<string, Record<string, unknown>> {
+  if (annotationCache) return annotationCache;
+  const m = new Map<string, Record<string, unknown>>();
+  for (const s of loadFixtures().pacer.skills) if (s.offline?.contextHash) m.set(s.offline.contextHash, s.offline.result);
+  for (const c of loadPacerDevCases().cases) m.set(contextHash(c.input as PacerObjectiveInput), c.annotation);
+  annotationCache = m;
+  return m;
 }
 
 export function sampleLectureSha(): string | null {
@@ -90,6 +106,7 @@ export function createMockProvider(db: Database.Database): MockProvider {
       return row ? (JSON.parse(row.examples_json) as ExampleFixture[]) : [];
     },
     sampleLecture: sha ? { sha256: sha, draft: fixtureCurriculumDraft() } : null,
+    pacerAnnotation: (hash) => pacerAnnotations().get(hash) ?? null,
   });
   if (faultState.__proximalMockFailures && faultState.__proximalMockFailures > 0) {
     const real = provider.assessAnswer.bind(provider);

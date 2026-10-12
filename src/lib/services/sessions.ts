@@ -42,6 +42,7 @@ import type { AppContext } from "./context";
 import { AppError, notFound } from "./errors";
 import { recentChatHelp } from "./chat";
 import { currentSkillState } from "./evidence";
+import { freezeSessionActivities, sessionActivitiesView } from "./pacer";
 
 export const MAX_CHECKPOINT_QUESTIONS = 3;
 export const DEFAULT_CHECKPOINT_QUESTIONS = 2;
@@ -167,6 +168,16 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
         repeatedFamily: pick.repeatedFamily,
       });
     });
+    // Learning sessions freeze each skill's reviewed PACER approach now; later decisions affect new sessions only.
+    if (mode === "learn" && purpose === "learn") {
+      const withSq = new Set(listSessionQuestions(ctx.db, sessionId).map((sq) => sq.skillId));
+      freezeSessionActivities(
+        ctx,
+        sessionId,
+        course.id,
+        chosen.map((id) => ({ skill: topicSkills.find((s) => s.id === id)!, hasPracticeQuestion: withSq.has(id) })),
+      );
+    }
     return { sessionId, resumed: false };
   })();
 }
@@ -517,6 +528,8 @@ export function getSessionView(ctx: AppContext, sessionId: string) {
       hasCheckedExplanation: !!s.unit.explanation,
     })),
     noQuestionsAvailable: sqs.length === 0,
+    // PACER learning activities (learning sessions only; a check never receives classification metadata).
+    activities: session.mode === "learn" ? sessionActivitiesView(ctx, session.id) : [],
   };
 }
 

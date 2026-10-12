@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
-import type { CurriculumFixture, LectureFixture, QuestionBank } from "../content/schemas";
+import type { CurriculumFixture, LectureFixture, PacerContextsFixture, QuestionBank } from "../content/schemas";
+import { getPacerContext, upsertPacerContext } from "../db/pacerRepo";
 import {
   getCourse,
   getQuestion,
@@ -29,7 +30,7 @@ export interface SeedInput {
   now: number;
   dataDir: string;
   samplePdfPath: string;
-  fixtures: { curriculum: CurriculumFixture; lecture: LectureFixture; bank: QuestionBank };
+  fixtures: { curriculum: CurriculumFixture; lecture: LectureFixture; bank: QuestionBank; pacer?: PacerContextsFixture };
 }
 
 /** Generate the sample lecture PDF from the lecture fixture; rewrite only when the bytes change (deterministic output). */
@@ -54,6 +55,7 @@ export async function seedDemo(input: SeedInput) {
     sourceRefreshed: false,
     unitsRefreshed: 0,
     pdfCreated: false,
+    pacerContextsUpdated: 0,
   };
   const pdf = await ensureSamplePdf(input.samplePdfPath, fixtures.lecture);
   report.pdfCreated = pdf.created;
@@ -168,6 +170,23 @@ export async function seedDemo(input: SeedInput) {
         updateQuestionContent(db, q);
         report.questionsUpdated += 1;
       }
+    }
+    // Authored PACER learning contexts: inserted or replaced only by a newer context version. A change makes earlier
+    // classification decisions stale for new sessions; it never touches learner records.
+    for (const c of fixtures.pacer?.skills ?? []) {
+      if (!db.prepare("SELECT 1 FROM skills WHERE id = ?").get(c.skillId)) continue;
+      const existing = getPacerContext(db, c.skillId);
+      if (existing && existing.contextVersion >= c.contextVersion) continue;
+      upsertPacerContext(db, {
+        skillId: c.skillId,
+        contextVersion: c.contextVersion,
+        learningGoal: c.learningGoal,
+        memoryRequirement: c.memoryRequirement,
+        auxChunks: c.auxChunks,
+        material: c.material,
+        updatedAt: now,
+      });
+      report.pacerContextsUpdated += 1;
     }
   })();
 

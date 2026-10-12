@@ -1,0 +1,330 @@
+{
+  "version": 1,
+  "status": "provisional_authored",
+  "note": "Authored learning contexts, activity material and offline classification annotations for the demo skills S1-S6. Drafted with AI assistance for implementation; not human-reviewed ground truth. Offline annotations are returned only when the classification context matches contextHash exactly, and are labelled as authored annotations, never as model inference.",
+  "skills": [
+    {
+      "skillId": "S1",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [],
+      "material": {
+        "reference": {
+          "chunkId": "p1",
+          "excerpt": "In binary classification we abbreviate p = p(y = 1 | x, theta). The probability of class 0 is then 1 - p.",
+          "page": 1,
+          "prompt": "Write a short reference note for this convention in your own words, and record where it is (source and page) so you can find it again.",
+          "recallPrompt": "Without looking, write what p stands for and what the probability of class 0 is."
+        },
+        "connect": {
+          "concepts": [
+            "p(y | x, θ)",
+            "the parameters θ",
+            "the probability p",
+            "a predicted label"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: what the model receives, what $\\theta$ does, what $p$ means, and how a probability becomes a predicted label.",
+          "hints": [
+            "Start with what the vertical bar means.",
+            "A probability and a label are different kinds of thing. What turns one into the other?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, explain from memory what $p(y \\mid x, \\theta)$ means, what $p$ abbreviates in binary classification, and why 0.7 is not a label."
+        }
+      },
+      "offline": {
+        "contextHash": "a72cf5587b73e60e0ef4a94a1fdddbd81747f70ba19b26130b2f219b986c4575",
+        "result": {
+          "kind": "suggestion",
+          "primary": "reference",
+          "secondary": [
+            "conceptual"
+          ],
+          "rationale": "Reference: the convention that p abbreviates the class-1 probability is a notation detail worth keeping as a source-linked note. Conceptual: the objective asks you to interpret the notation, so its meaning matters, not only lookup.",
+          "support": [
+            {
+              "from": "source",
+              "chunkId": "p1",
+              "quote": "In binary classification we abbreviate p = p(y = 1 | x, theta)."
+            },
+            {
+              "from": "objective",
+              "quote": "Interpret conditional model notation"
+            }
+          ],
+          "ambiguityNote": "Interpretation is required, so conceptual could also lead. The existing notation check is unchanged either way."
+        }
+      }
+    },
+    {
+      "skillId": "S2",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [],
+      "material": {
+        "connect": {
+          "concepts": [
+            "the observed labels",
+            "the parameters θ",
+            "conditional independence",
+            "the product of true-label probabilities"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: why the likelihood becomes a product, what is fixed and what varies during fitting, and what the independence assumption is doing.",
+          "hints": [
+            "Which quantity changes when $\\theta$ changes?",
+            "When is it valid to multiply probabilities?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, reconstruct why $L(\\theta)$ is a product under the assumption, and what the assumption does not guarantee."
+        }
+      },
+      "offline": {
+        "contextHash": "59e7d681388cca83fa57d42a7184e1b307f2d842167a40f7b048c98c5156aa2e",
+        "result": {
+          "kind": "suggestion",
+          "primary": "procedural",
+          "secondary": [
+            "conceptual"
+          ],
+          "rationale": "Procedural: the objective asks you to construct a likelihood, an operation you carry out with given probabilities. Conceptual: the construction relies on the independence assumption, whose role and limits need explaining.",
+          "support": [
+            {
+              "from": "objective",
+              "quote": "Construct likelihood under the stated independence assumption"
+            },
+            {
+              "from": "source",
+              "chunkId": "p2",
+              "quote": "Conditional independence is a modelling assumption that makes the product valid."
+            }
+          ],
+          "ambiguityNote": null
+        }
+      }
+    },
+    {
+      "skillId": "S3",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [],
+      "material": {
+        "connect": {
+          "concepts": [
+            "the likelihood L",
+            "log L",
+            "the negative log likelihood",
+            "the mean NLL"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: why maximising $L$ and minimising the NLL pick the same parameters, and what each step (log, negate, average) changes and keeps.",
+          "hints": [
+            "Which property of log keeps the order of values?",
+            "Does dividing by a fixed positive $n$ move the minimiser?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, reconstruct the chain from maximising $L$ to minimising the mean NLL, giving the reason each step is allowed."
+        },
+        "createAnalogy": {
+          "prompt": "Optional: make your own comparison for why taking the log keeps the same best parameters (for example, something whose order is preserved when rescaled). Say where your comparison breaks down."
+        }
+      },
+      "offline": {
+        "contextHash": "caa1801dc23923c5369c176d2ac5a8207a8960e78d77c38698026647298ff30e",
+        "result": {
+          "kind": "suggestion",
+          "primary": "conceptual",
+          "secondary": [
+            "procedural"
+          ],
+          "rationale": "Conceptual: the objective connects three quantities, and the reasons (log is strictly increasing, negation turns maximising into minimising) are the core. Procedural: taking logs and negating are algebraic operations to carry out.",
+          "support": [
+            {
+              "from": "source",
+              "chunkId": "p3",
+              "quote": "The logarithm is strictly increasing on positive values"
+            },
+            {
+              "from": "objective",
+              "quote": "Connect likelihood, log likelihood and negative log likelihood"
+            }
+          ],
+          "ambiguityNote": null
+        }
+      }
+    },
+    {
+      "skillId": "S4",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [
+        {
+          "chunkId": "S4-analogy",
+          "kind": "analogy",
+          "label": "Authored analogy (demo learning context)",
+          "text": "Think of BCE as a penalty for confidently backing the wrong label. This captures the direction of the penalty, but BCE specifies a logarithmic magnitude rather than an arbitrary penalty."
+        }
+      ],
+      "material": {
+        "connect": {
+          "concepts": [
+            "the probability given to the true label",
+            "−log q",
+            "the size of the loss",
+            "accuracy"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: what BCE penalises, why a confident wrong prediction costs so much, and why two models with the same accuracy can have different BCE.",
+          "hints": [
+            "What happens to $-\\log q$ as $q$ gets close to 0?",
+            "Accuracy only looks at the thresholded label. What does BCE look at?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, explain in your own words what BCE penalises and how it differs from accuracy. Include why a confident wrong prediction is costly."
+        },
+        "evidence": {
+          "chunkId": "p4",
+          "excerpt": "Worked example: for true label 1, model A predicts 0.95 and model B predicts 0.55. Both are correct at a 0.5 threshold, but A's loss is -ln 0.95 = 0.051 and B's is -ln 0.55 = 0.598.",
+          "claim": "Two models with the same accuracy can have different BCE.",
+          "prompt": "Explain what this worked example supports, how it supports the claim below, what it assumes, and what it does not show (it is one illustration, not a result about calibration or which model is better in general)."
+        },
+        "analogy": {
+          "chunkId": "S4-analogy",
+          "prompt": "Map the comparison: which part of the analogy corresponds to the predicted probability, the true label and the loss? Give one useful similarity and one place it breaks down."
+        },
+        "createAnalogy": {
+          "prompt": "Optional: make your own comparison for what BCE penalises. Say which part matches the probability on the true label, and one place your comparison breaks down."
+        }
+      },
+      "offline": {
+        "contextHash": "7fa2c4538960362df89ace33e883d6f1e3cb0abb494ef3f6288d90ede255835d",
+        "result": {
+          "kind": "suggestion",
+          "primary": "conceptual",
+          "secondary": [
+            "supporting_evidence"
+          ],
+          "rationale": "Conceptual: the objective asks you to explain what BCE measures and how it differs from accuracy, which is about reasons rather than steps. Supporting evidence: the page's two-model worked example illustrates the claim that equal accuracy can hide different loss.",
+          "support": [
+            {
+              "from": "objective",
+              "quote": "Explain what BCE measures and distinguish it from accuracy"
+            },
+            {
+              "from": "source",
+              "chunkId": "p4",
+              "quote": "It penalises a model for assigning low probability to the true label."
+            },
+            {
+              "from": "source",
+              "chunkId": "p4",
+              "quote": "Both are correct at a 0.5 threshold"
+            }
+          ],
+          "ambiguityNote": "The authored analogy in this context could support an optional analogy activity; it is not needed for the objective."
+        }
+      }
+    },
+    {
+      "skillId": "S5",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [],
+      "material": {
+        "connect": {
+          "concepts": [
+            "the label y",
+            "the class-1 probability p",
+            "the surviving log term",
+            "the mean over examples"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: how the label decides which term of BCE remains, why that term uses $p$ or $1-p$, and how per-example losses are combined to compare models.",
+          "hints": [
+            "Substitute $y=0$ into the formula. Which term vanishes?",
+            "Is $p$ the probability of the true label for a label-0 example?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, reconstruct how to calculate BCE for a label-0 example and how to compare two models on the same examples, giving the reason for each step."
+        }
+      },
+      "offline": {
+        "contextHash": "a4e9fda081eaf3994f733e34beff02794300a7e6d5ea4893363427390d46c4da",
+        "result": {
+          "kind": "suggestion",
+          "primary": "procedural",
+          "secondary": [
+            "conceptual"
+          ],
+          "rationale": "Procedural: the objective asks you to calculate BCE and aggregate losses, a sequence of operations. Conceptual: choosing the label branch and the true-label probability (1 − p for label 0) needs the reason, not just the formula.",
+          "support": [
+            {
+              "from": "objective",
+              "quote": "Calculate BCE and use aggregate losses to compare predictions"
+            },
+            {
+              "from": "source",
+              "chunkId": "p5",
+              "quote": "For a label-0 example the true-label probability is 1 - p."
+            }
+          ],
+          "ambiguityNote": null
+        }
+      }
+    },
+    {
+      "skillId": "S6",
+      "contextVersion": 1,
+      "learningGoal": null,
+      "memoryRequirement": "unspecified",
+      "auxChunks": [],
+      "material": {
+        "connect": {
+          "concepts": [
+            "the Bernoulli probability p^y (1 − p)^(1 − y)",
+            "the negative log",
+            "the log rules",
+            "BCE"
+          ],
+          "prompt": "Before reading the explanation, explain how these relate: why the Bernoulli expression picks the right probability for each label, and which log rules turn its negative log into BCE.",
+          "hints": [
+            "Evaluate $p^y(1-p)^{1-y}$ at $y=1$ and at $y=0$.",
+            "What does log do to a product, and to a power?"
+          ]
+        },
+        "reconstruct": {
+          "prompt": "With the explanation hidden, reconstruct the derivation from the Bernoulli probability to BCE, naming the log rule used at each step."
+        }
+      },
+      "offline": {
+        "contextHash": "404600ee943661865bfb587d7588c1605b974a1c1f086aa023d712b616763c78",
+        "result": {
+          "kind": "suggestion",
+          "primary": "procedural",
+          "secondary": [
+            "conceptual"
+          ],
+          "rationale": "Procedural: deriving BCE is a sequence of algebraic steps (take the negative log, apply the log rules). Conceptual: why the Bernoulli expression equals p or 1 − p for each label explains what the derivation shows.",
+          "support": [
+            {
+              "from": "objective",
+              "quote": "Derive BCE from the Bernoulli likelihood"
+            },
+            {
+              "from": "source",
+              "chunkId": "p6",
+              "quote": "The log of a product is a sum of logs, and the log of a power brings the exponent down"
+            }
+          ],
+          "ambiguityNote": null
+        }
+      }
+    }
+  ]
+}

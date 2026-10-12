@@ -15,6 +15,7 @@ import { MathText } from "../MathText";
 import type { ProviderInfo } from "../ProviderBadge";
 import { useApiResource } from "../useApiResource";
 import { ProviderNotice } from "../workspace";
+import { ActivityBanner, ActivityCard, isBlocking, type SessionActivity } from "../LearningActivity";
 import { Notice, Pill, newSubmissionKey } from "../ui";
 
 interface Attempt {
@@ -93,6 +94,8 @@ interface SessionData {
   noQuestionsAvailable: boolean;
   demoExamples: Record<string, { label: string; answer: string }[]>;
   run: RunInfo | null;
+  /** PACER learning activities (learning sessions only). */
+  activities: SessionActivity[];
 }
 
 interface RunInfo {
@@ -896,11 +899,14 @@ function LearnFlow({
   const shown = explanation?.unitId === unitId ? explanation : stored ? { unitId: unitId!, ...stored, origin: "checked_fixture" } : null;
   const practice = data.session.purpose === "practice";
   const checkedExplanation = data.units.find((u) => u.unitId === unitId)?.hasCheckedExplanation ?? false;
+  const activities = current ? data.activities.filter((a) => a.skillId === current.skill.id) : [];
+  // Connect comes before teaching: a pending primary activity holds the explanation and the question back.
+  const blocking = activities.find(isBlocking) ?? null;
 
   // Learning explains first: a checked explanation opens on its own (live tutor explanations stay on request).
   const autoExplained = useRef<string | null>(null);
   useEffect(() => {
-    if (practice || shown || !unitId || !checkedExplanation || data.session.status !== "active") return;
+    if (practice || blocking || shown || !unitId || !checkedExplanation || data.session.status !== "active") return;
     if (autoExplained.current === unitId) return;
     autoExplained.current = unitId;
     void explain();
@@ -993,8 +999,29 @@ function LearnFlow({
   const latest = current.attempts[current.attempts.length - 1];
   const passed = current.attempts.some((a) => a.feedback?.outcome === "pass");
 
+  if (blocking) {
+    return (
+      <div className="space-y-4">
+        <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">
+          {current.unit.title} · before practice question {current.ordinal + 1} of {data.progress.total}
+        </p>
+        <ActivityCard key={blocking.id} sessionId={sessionId} activity={blocking} onChanged={onChanged} />
+      </div>
+    );
+  }
+
+  const banners = activities.filter((a) => a.status === "unavailable" || (a.steps.length === 0 && a.status === "open"));
+  const finishedPrimary = activities.filter((a) => a.role === "primary" && a.steps.length > 0 && a.status === "completed");
+  const optional = activities.filter((a) => a.role === "secondary" && a.steps.length > 0);
+
   return (
     <div className="space-y-4">
+      {finishedPrimary.map((a) => (
+        <ActivityCard key={a.id} sessionId={sessionId} activity={a} onChanged={onChanged} />
+      ))}
+      {optional.map((a) => (
+        <ActivityCard key={a.id} sessionId={sessionId} activity={a} onChanged={onChanged} collapsible />
+      ))}
       {!practice && (
         <div className="rounded-xl border border-line bg-card p-5">
           <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">Read first</p>
@@ -1024,6 +1051,9 @@ function LearnFlow({
         </div>
       )}
 
+      {banners.map((a) => (
+        <ActivityBanner key={a.id} activity={a} />
+      ))}
       <p className="text-xs font-medium uppercase tracking-[0.06em] text-muted">
         Practice question {current.ordinal + 1} of {data.progress.total} · help available, counts as practice
       </p>

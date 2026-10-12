@@ -15,6 +15,7 @@ import {
   type TutorInput,
   type ChatInput,
   type ChatReply,
+  type PacerClassifyInput,
 } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -194,6 +195,11 @@ export class MeteredProvider implements LearningProvider {
     const inner = this.inner;
     if (!inner.chat) return Promise.reject(new ProviderError(OFFLINE_CHAT_MESSAGE, "offline_unsupported", false));
     return this.run("tutor", () => inner.chat!(input));
+  }
+  classifyPacer(input: PacerClassifyInput): Promise<{ results: unknown[]; meta: ProviderMeta }> {
+    const inner = this.inner;
+    if (!inner.classifyPacer) return Promise.reject(new ProviderError("This provider cannot classify learning objectives.", "provider_unavailable", false));
+    return this.run("curriculum", () => inner.classifyPacer!(input));
   }
 }
 

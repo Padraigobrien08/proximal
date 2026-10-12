@@ -16,6 +16,7 @@ console.log(
     `Inserted ${report.questionsInserted} new fixture question(s); updated ${report.questionsUpdated} unreviewed fixture question(s) to a newer authored version (owner-reviewed questions are never changed).`,
     report.sourceRefreshed ? "Refreshed the demo source text from the lecture fixture." : "Demo source text unchanged.",
     `Refreshed ${report.unitsRefreshed} demo explanation(s).`,
+    `Inserted or updated ${report.pacerContextsUpdated} authored PACER learning context(s).`,
     report.pdfCreated ? `Generated ${SAMPLE_PDF_PATH}.` : `Sample PDF up to date at ${SAMPLE_PDF_PATH}.`,
     "Learner records and imported uploads were not touched.",
   ].join("\n"),

@@ -29,6 +29,7 @@ import { notFound } from "./errors";
 import { displaySkillState, openCheckpointSessionIds } from "./evidence";
 import { moduleMastery, topicMastery } from "./mastery";
 import { getStudyPlanSettings, plannedModuleIds } from "./settings";
+import { approachHint, topicActivityHistory, topicApproaches } from "./pacer";
 
 export function providerInfo(ctx: AppContext) {
   return { ...ctx.providerStatus };
@@ -199,6 +200,7 @@ export function getHomeView(ctx: AppContext, budgetMinutes: number) {
   const byId = new Map(skills.map((x) => [x.skillId, x]));
   const describe = <T extends { dueAt: number | null }>(t: T) => ({
     ...t,
+    ...withApproach(ctx, t),
     ...("action" in t ? taskDisplay(ctx, t as unknown as StudyTask, byId) : {}),
     dueWhen: t.dueAt !== null ? relativeWhen(t.dueAt, now, ctx.timezone) : null,
     dueExact: t.dueAt !== null ? formatDateTime(t.dueAt, ctx.timezone) : null,
@@ -248,6 +250,14 @@ function moduleStudyCards(ctx: AppContext, budgetMinutes: number) {
 }
 
 export type HomeView = ReturnType<typeof getHomeView>;
+
+/** A learning task's brief reason can name the reviewed approach. Priority and ordering are unchanged. */
+function withApproach(ctx: AppContext, t: { dueAt: number | null }): { reason?: string; approach?: string } {
+  const task = t as unknown as Partial<StudyTask>;
+  if (task.action !== "learn" || !task.skillIds || !task.reason) return {};
+  const hint = approachHint(ctx, task.skillIds);
+  return hint ? { reason: `${task.reason} · ${hint}`, approach: hint } : {};
+}
 
 /** Subtopic titles and the learner-facing step kind for a plan task. */
 function taskDisplay(ctx: AppContext, t: StudyTask, skills: Map<string, PlanSkill>) {
@@ -420,7 +430,13 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     skillIds: JSON.parse(e.affected) as string[],
   }));
 
-  const history = [...attemptsHistory, ...helpHistory].sort((a, b) => b.order - a.order).slice(0, 60);
+  // Learning activity responses are learning records, never checks: interleaved by time after record-ordered rows.
+  const activityHistory = topicActivityHistory(ctx, topic.id);
+  const history = [...[...attemptsHistory, ...helpHistory].sort((a, b) => b.order - a.order), ...activityHistory]
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => b.h.at - a.h.at || a.i - b.i)
+    .map((x) => x.h)
+    .slice(0, 60);
   const anyAttempt = attemptsHistory.length > 0;
   const dueReview = skills.some((s) => s.isDue && s.reviewAvailable);
   const primaryAction = dueReview ? "review" : anyAttempt ? "check" : "learn";
@@ -451,6 +467,8 @@ export function getTopicView(ctx: AppContext, topicId: string) {
     primaryAction,
     activeSessions: activeSessions.map((a) => ({ ...a, startedAt: formatDateTime(a.createdAt, ctx.timezone) })),
     history,
+    // Safe summary only (type badges and review status). Rationales and quotes come from the guarded details call.
+    learningApproach: topicApproaches(ctx, topic.id),
   };
 }
 
