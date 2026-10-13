@@ -81,6 +81,26 @@ describe("T18: PDF import", () => {
     expect(again.courseId).toBe(res.courseId);
   });
 
+  it("AC02: a unit removed from the draft stays removed when the same lecture is imported again, and study stays blocked", async () => {
+    const { ctx, dir } = await setup();
+    const res = await importPdf(ctx, dir, { name: "lecture.pdf", bytes: readFileSync(SAMPLE_PDF_PATH) });
+    const units = getCourseView(ctx, res.courseId).topics.flatMap((t) => t.units);
+    const removed = units[1];
+    patchDraft(ctx, res.courseId, { units: [{ unitId: removed.id, delete: true }], addUnits: [] });
+
+    const again = await importPdf(ctx, dir, { name: "lecture.pdf", bytes: readFileSync(SAMPLE_PDF_PATH) });
+    expect(again.courseId).toBe(res.courseId);
+    const view = getCourseView(ctx, res.courseId);
+    const after = view.topics.flatMap((t) => t.units);
+    expect(after).toHaveLength(units.length - 1);
+    expect(after.some((u) => u.id === removed.id || u.title === removed.title)).toBe(false);
+    expect(view.course.status).toBe("draft");
+    for (const topic of view.topics) {
+      expect(() => startSession(ctx, { topicId: topic.id, mode: "learn" })).toThrow(/Approve/);
+      expect(() => startSession(ctx, { topicId: topic.id, mode: "review" })).toThrow(/Approve/);
+    }
+  });
+
   it("other text PDFs in mock mode extract text and require manual objectives", async () => {
     const { ctx, dir } = await setup();
     const bytes = await pdfWithPages([

@@ -152,6 +152,44 @@ describe("assistance and exposure rules", () => {
     expect(currentSkillState(ctx, "S4").evidenceState).toBe("demonstrated_once");
   });
 
+  it("AC05: a full explanation (no hint) before a check makes a correct answer supported, never Checked", async () => {
+    const { ctx } = await setup();
+    const { sessionId } = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S4"] });
+    await reveal(ctx, sessionId, { kind: "explanation" }); // defaults to the current question's unit
+    const r = await answer(ctx, sessionId, exampleAnswer("S4-A", "correct"));
+    expect(getAttempt(ctx.db, r.attemptId)!.exposureSnapshot).toContain("S4");
+    const s4 = currentSkillState(ctx, "S4");
+    expect(s4.evidenceState).toBe("supported");
+    expect(s4.stage).toBeNull();
+  });
+
+  it("AC05: an opened source before a check makes a correct answer supported, never Checked", async () => {
+    const { ctx } = await setup();
+    const { sessionId } = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S4"] });
+    await reveal(ctx, sessionId, { kind: "source", sessionQuestionId: currentSqId(ctx, sessionId) });
+    await answer(ctx, sessionId, exampleAnswer("S4-A", "correct"));
+    const s4 = currentSkillState(ctx, "S4");
+    expect(s4.evidenceState).toBe("supported");
+    expect(s4.stage).toBeNull();
+  });
+
+  it("AC05: an explanation earlier in the session carries exposure to a later question on that skill, without a hint", async () => {
+    const { ctx } = await setup();
+    const { sessionId } = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S4", "S5"] });
+    expect(getSessionView(ctx, sessionId).current?.question.id).toBe("S4-A");
+    // While on S4, read the full explanation for S5's unit; no hint is ever requested.
+    await reveal(ctx, sessionId, { kind: "explanation", unitId: "U5" });
+    await answer(ctx, sessionId, exampleAnswer("S4-A", "correct"));
+    expect(currentSkillState(ctx, "S4").evidenceState).toBe("demonstrated_once"); // unrelated unit: unaffected
+
+    expect(getSessionView(ctx, sessionId).current?.question.id).toBe("S5-A");
+    const r = await answer(ctx, sessionId, exampleAnswer("S5-A", "correct"));
+    expect(getAttempt(ctx.db, r.attemptId)!.exposureSnapshot).toContain("S5");
+    const s5 = currentSkillState(ctx, "S5");
+    expect(s5.evidenceState).toBe("supported");
+    expect(s5.stage).toBeNull();
+  });
+
   it("T03: source/solution reveal is committed before content is returned", async () => {
     let observedDuringTutor = 0;
     const { ctx } = await setup({
@@ -381,6 +419,34 @@ describe("idempotency, privacy and providers", () => {
     const ev = attemptHistory(getTopicView(ctx, BCE)).find((e) => e.attemptId === r.attemptId)!;
     expect(ev.excluded).toBe(true);
     expect(ev.excludedReason).toBe("Judgement looked wrong");
+  });
+
+  it("AC09: failing an application question on a passed skill starts a new epoch for that skill only and keeps earlier passes", async () => {
+    const { ctx, clock } = await setup();
+    const first = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S4", "S5"] });
+    await answer(ctx, first.sessionId, exampleAnswer("S4-A", "correct"));
+    clock.advance(60_000);
+    const pass = await answer(ctx, first.sessionId, exampleAnswer("S5-A", "correct"));
+    endSession(ctx, first.sessionId);
+    const s4Before = currentSkillState(ctx, "S4");
+    expect(currentSkillState(ctx, "S5").evidenceState).toBe("demonstrated_once");
+
+    clock.advance(2 * MS_DAY);
+    const later = startSession(ctx, { topicId: BCE, mode: "review", skillIds: ["S5"] });
+    expect(getSessionView(ctx, later.sessionId).current?.question.id).toBe("S5-B");
+    const fail = await answer(ctx, later.sessionId, exampleAnswer("S5-B", "wrong"));
+
+    const s5 = currentSkillState(ctx, "S5");
+    expect(s5.epoch).toBe(1);
+    expect(s5.reassessmentNeeded).toBe(true);
+    expect(s5.evidenceState).toBe("developing");
+    expect(currentSkillState(ctx, "S4")).toEqual(s4Before);
+
+    const topic = getTopicView(ctx, BCE);
+    expect(topic.skills.find((s) => s.id === "S5")!.reassessmentNeeded).toBe(true);
+    const s5History = attemptHistory(topic).filter((e) => e.skillId === "S5");
+    expect(s5History.map((e) => e.attemptId).sort()).toEqual([pass.attemptId, fail.attemptId].sort());
+    expect(s5History.find((e) => e.attemptId === pass.attemptId)!.excluded).toBe(false);
   });
 
   it("T20: model input excludes confidence and mastery; injected instructions cannot change the contract", async () => {

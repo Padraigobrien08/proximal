@@ -95,6 +95,33 @@ describe("evidence reducer", () => {
     expect(s.dueAt).toBe(T0 + 2 * MS_DAY + 3 * MS_DAY);
   });
 
+  it("AC08: three distinct-family passes in separate sessions on one day give one advance, no retention, no due extension", () => {
+    const s = replaySkill(
+      [
+        ea({ sessionId: "s1", submittedAt: T0, familyId: "A" }),
+        ea({ sessionId: "s2", submittedAt: T0 + 4 * MS_HOUR, familyId: "B", isTransfer: true }),
+        ea({ sessionId: "s3", submittedAt: T0 + 8 * MS_HOUR, familyId: "C" }),
+      ],
+      policy,
+    );
+    expect(s.evidenceState).toBe("demonstrated_once");
+    expect(s.stage).toBe(0);
+    expect(s.dueAt).toBe(T0 + MS_DAY);
+    expect(s.currentEpochPasses).toHaveLength(3); // kept for coverage and history
+
+    // The next qualifying pass is measured from the first promotion, not the latest same-day pass.
+    const next = replaySkill(
+      [
+        ea({ sessionId: "s1", submittedAt: T0, familyId: "A" }),
+        ea({ sessionId: "s2", submittedAt: T0 + 8 * MS_HOUR, familyId: "B" }),
+        ea({ sessionId: "s3", submittedAt: T0 + MS_DAY, familyId: "C", isTransfer: true }),
+      ],
+      policy,
+    );
+    expect(next.stage).toBe(1);
+    expect(next.evidenceState).toBe("retention_demonstrated");
+  });
+
   it("T10: independent partial/fail starts a new epoch and keeps reassessment flag; history input unchanged", () => {
     const attempts = [
       ea({ sessionId: "s1", submittedAt: T0, familyId: "A" }),
