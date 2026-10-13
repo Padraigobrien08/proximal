@@ -63,7 +63,7 @@ export function HomeScreen() {
   const approved = data.courses.filter((c) => c.status === "approved");
   return (
     // One viewport on large screens: the session on the left, modules on the right; each side scrolls internally if needed.
-    <div className="grid gap-5 lg:h-[calc(100dvh-121px)] lg:min-h-[520px] lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:h-[calc(100dvh-121px)] lg:min-h-[520px] lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]">
       <h1 className="sr-only">Overview</h1>
       {/* Mode lives in the sidebar footer; only a broken live configuration earns space here. */}
       {data.provider.mode === "live" && !data.provider.ready && (
@@ -370,7 +370,7 @@ function DraftRow({ module: m }: { module: CourseSummaryView }) {
 
 function HomeSkeleton() {
   return (
-    <div aria-busy="true" className="grid gap-5 lg:h-[calc(100dvh-121px)] lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]">
+    <div aria-busy="true" className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:h-[calc(100dvh-121px)] lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]">
       <div className="h-[420px] rounded-2xl border border-line bg-card lg:h-auto" />
       <div className="h-[240px] rounded-xl border border-line bg-card" />
       <span className="sr-only" role="status">

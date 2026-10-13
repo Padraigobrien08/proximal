@@ -1,7 +1,7 @@
 // Live smoke test: one real call per provider job (assessment, tutor, chat, curriculum, PACER, question drafts), run
 // through the same services and validators the app uses. Learner data is never touched: the demo is seeded into a
 // temporary database. Calls are metered into the app database (npm run usage) and respect the daily caps.
-// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]
+// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions,material,feedback]
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,14 +22,15 @@ import { PDFDocument } from "pdf-lib";
 import { renderPagesAsJpeg } from "../src/lib/pdf/render";
 import { classifyTopic } from "../src/lib/services/pacer";
 import { checkDraftBatch } from "../src/lib/questions/drafts";
+import { checkMaterialDraft } from "../src/lib/pacer/materialDrafts";
 import { selfCheckDraft } from "../src/lib/services/questionDrafts";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
-const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "ocr", "pacer", "questions"] as const;
+const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "ocr", "pacer", "questions", "material", "feedback"] as const;
 type Job = (typeof JOBS)[number];
 // Paid calls per job, so the confirmation message is exact.
-const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, ocr: 1, pacer: 1, questions: 7 };
+const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, ocr: 1, pacer: 1, questions: 7, material: 1, feedback: 1 };
 
 loadDotEnv();
 const only = arg("only")?.split(",").map((s) => s.trim()) as Job[] | undefined;
@@ -221,6 +222,39 @@ if (jobs.includes("questions")) {
       ok: valid.length === 2 && problems.length === 0 && checks.every((c) => c.status === "passed"),
       detail: `${valid.length}/2 valid (${meta.model}); marking checks: ${checkText}${problems.length ? `; problems: ${problems.join("; ")}` : ""}`,
     };
+  });
+}
+
+// Activity material for the BCE-meaning objective (page 4), checked by the same grounding rules the app applies.
+if (jobs.includes("material")) {
+  await check("activity material", async () => {
+    const pages = fixtures.lecture.pages.filter((p) => p.page === 4).map((p) => ({ page: p.page, text: pageText(p) }));
+    const { draft, meta } = await provider.draftMaterial({
+      courseTitle: "Smoke test",
+      unitTitle: "Meaning of binary cross-entropy",
+      objective: "Explain what BCE measures and distinguish it from accuracy",
+      sourcePages: pages,
+      explanationWanted: true,
+    });
+    const checked = checkMaterialDraft(draft, pages, { explanationWanted: true });
+    const parts = checked.ok ? Object.entries(checked.draft).filter(([, v]) => v !== null).map(([k]) => k) : [];
+    return { ok: checked.ok, detail: checked.ok ? `${meta.model}: ${parts.join(", ")}` : `invalid: ${checked.problems.join("; ")}` };
+  });
+}
+
+// Coaching on a learning-activity response (never a grade).
+if (jobs.includes("feedback")) {
+  await check("activity feedback", async () => {
+    const { feedback, meta } = await provider.activityFeedback({
+      objective: "Explain what BCE measures and distinguish it from accuracy",
+      activity: "Connect and explain · Reconstruct from memory",
+      prompt: "With the explanation hidden, explain what BCE measures and why two models with the same accuracy can differ in BCE.",
+      expected: "The key reasoning in your own words.",
+      response: "BCE looks at how much probability the model gives the right label, so a model that is confidently right scores better even if accuracy is the same.",
+      sourcePages: fixtures.lecture.pages.filter((p) => p.page === 4).map((p) => ({ page: p.page, text: pageText(p) })),
+    });
+    const graded = /\b(score|grade|\d+\s*\/\s*10|pass(ed)?|fail(ed)?)\b/i.test(feedback);
+    return { ok: feedback.length > 40 && !graded, detail: `${feedback.length} chars (${meta.model})${graded ? "; looks like a grade" : ""}: ${JSON.stringify(feedback.slice(0, 120))}` };
   });
 }
 
