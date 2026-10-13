@@ -123,6 +123,14 @@ describe("OpenAI adapter", () => {
       code: "provider_unavailable",
       retryable: true,
     });
+    // An exhausted quota is also a 429, but retrying will not help.
+    // As OpenAI actually reports it (observed 2026-10-13): type insufficient_quota, code credit_balance_exhausted.
+    const quota = new OpenAI.RateLimitError(429, { message: "no credits", type: "insufficient_quota", code: "credit_balance_exhausted" }, "no credits", new Headers());
+    await expect(new OpenAIProvider({ apiKey: "k", model: "m", client: fakeClient([quota]) }).assessAnswer(input)).rejects.toMatchObject({
+      code: "provider_unavailable",
+      retryable: false,
+      message: expect.stringMatching(/no credits or quota left/),
+    });
     const auth = new OpenAI.AuthenticationError(401, { message: "bad key" }, "bad key", new Headers());
     await expect(new OpenAIProvider({ apiKey: "k", model: "m", client: fakeClient([auth]) }).assessAnswer(input)).rejects.toMatchObject({
       code: "provider_unavailable",

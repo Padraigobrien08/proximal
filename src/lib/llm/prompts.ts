@@ -96,13 +96,13 @@ export function chatUserContent(input: ChatInput): string {
     .join("\n\n");
 }
 
-export const PACER_PROMPT_VERSION = "pacer-classifier-v1";
+export const PACER_PROMPT_VERSION = "pacer-classifier-v2";
 
 export const PACER_SYSTEM = [
   "Classify each approved learning objective in the supplied source and goal context using the provided PACER taxonomy.",
   "Choose a useful primary type and at most two distinct secondary types; a mixed result is valid. Do not list every type to avoid choosing.",
   "The rationale (at most 400 characters) must name and explain every type you propose.",
-  "Ground the rationale in one to three exact excerpts: copy each quote character-for-character from the identified chunk, the objective or the learner connection, and give the chunk id for source quotes.",
+  "Ground the rationale in one to three exact excerpts: copy each quote character-for-character from the identified chunk (from=source, with its chunk id), the objective (from=objective), the learning goal (from=learning_goal) or the learner connection (from=learner_context). Use learning_goal or learner_context only when that text was supplied; otherwise quote the objective or a chunk.",
   "Classification depends on the objective and source together: the same formula can be procedural when the goal is to calculate, conceptual when the goal is to explain, reference when it is kept for lookup.",
   "Use analogous only for an explicit comparison present in a chunk marked kind=\"analogy\" or a supplied learner connection. A conceptual objective that would benefit from an analogy stays conceptual.",
   "Abstain when the context is insufficient, the goal is unclear, the extraction is unreliable or no type fits.",

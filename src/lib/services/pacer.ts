@@ -472,7 +472,11 @@ export function revealApproachDetails(ctx: AppContext, topicId: string, skillIds
                 support: r.support.map((x) =>
                   x.from === "source"
                     ? { from: x.from, quote: x.quote, where: chunkLabel.get(x.chunkId)?.label ?? x.chunkId }
-                    : { from: x.from, quote: x.quote, where: x.from === "objective" ? "The objective" : "Your connection" },
+                    : {
+                        from: x.from,
+                        quote: x.quote,
+                        where: x.from === "objective" ? "The objective" : x.from === "learning_goal" ? "The learning goal" : "Your connection",
+                      },
                 ),
               }
             : { kind: "abstain" as const, reason: r.reason, abstainText: ABSTAIN_TEXT[r.reason], message: r.message }),

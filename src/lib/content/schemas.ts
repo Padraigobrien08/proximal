@@ -195,7 +195,7 @@ const authoredProposalSchema = z.union([
     support: z.array(
       z.union([
         z.strictObject({ from: z.literal("source"), chunkId: z.string(), quote: z.string() }),
-        z.strictObject({ from: z.enum(["objective", "learner_context"]), quote: z.string() }),
+        z.strictObject({ from: z.enum(["objective", "learner_context", "learning_goal"]), quote: z.string() }),
       ]),
     ),
     ambiguityNote: z.string().nullable(),

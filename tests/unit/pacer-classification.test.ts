@@ -169,6 +169,40 @@ describe("P04 ids and grounding", () => {
   });
 });
 
+describe("learning-goal support", () => {
+  it("a learning-goal quote must come from an actually supplied goal", () => {
+    const p = {
+      kind: "suggestion",
+      objectiveId: "F03",
+      primary: "reference",
+      secondary: [],
+      rationale: "Reference: the expression is kept for lookup.",
+      support: [{ from: "learning_goal", quote: "Lookup is explicitly permitted" }],
+      ambiguityNote: null,
+    };
+    expect(validateProposal(input("F03"), p).ok).toBe(true);
+    expect(validateProposal({ ...input("F03"), learningGoal: null }, p)).toMatchObject({ ok: false, problems: [expect.stringMatching(/no learning goal was supplied/)] });
+    expect(validateProposal(input("F03"), { ...p, support: [{ from: "learning_goal", quote: "invented goal text" }] }).ok).toBe(false);
+  });
+});
+
+describe("wire conversion", () => {
+  it("an abstention whose message is null keeps its reason and gets that reason's text (observed live)", () => {
+    const candidate = fromWire({
+      kind: "abstain",
+      objectiveId: "F11",
+      primary: null,
+      secondary: [],
+      rationale: null,
+      support: [],
+      ambiguityNote: null,
+      abstainReason: "unreliable_extraction",
+      message: null,
+    });
+    expect(validateProposal(input("F11"), candidate)).toMatchObject({ ok: true, proposal: { kind: "abstain", reason: "unreliable_extraction" } });
+  });
+});
+
 describe("P05 prompt injection", () => {
   it("the injected text is classified as data (no blanket procedural label)", async () => {
     const { results } = await offline(["F12"]);

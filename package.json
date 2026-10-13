@@ -17,6 +17,7 @@
     "db:migrate": "tsx --conditions=react-server scripts/migrate.ts",
     "db:seed": "tsx --conditions=react-server scripts/seed.ts",
     "demo:reset": "tsx --conditions=react-server scripts/demo-reset.ts",
+    "eval:pacer": "tsx --conditions=react-server scripts/eval-pacer.ts",
     "eval:fixtures": "tsx --conditions=react-server scripts/eval-fixtures.ts",
     "content:review": "tsx --conditions=react-server scripts/content-review.ts",
     "questions:import": "tsx --conditions=react-server scripts/import-questions.ts",

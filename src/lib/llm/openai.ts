@@ -313,7 +313,17 @@ export function mapOpenAIError(err: unknown): ProviderError {
     return new ProviderError(`OpenAI rejected the request: ${err.message.slice(0, 200)}`, "provider_unavailable", false);
   }
   if (err instanceof OpenAI.RateLimitError) {
-    return new ProviderError("OpenAI rate limit or quota reached. Your answer is saved; you can retry.", "provider_unavailable", true);
+    // 429 covers two different situations: a short-term rate limit (wait and retry) and an exhausted account quota or
+    // billing limit (retrying will not help until it is raised).
+    // OpenAI reports exhausted credit as type insufficient_quota (code insufficient_quota or credit_balance_exhausted).
+    if (err.type === "insufficient_quota" || err.code === "insufficient_quota" || err.code === "credit_balance_exhausted") {
+      return new ProviderError(
+        "OpenAI says the account has no credits or quota left. Add credits in OpenAI billing, then retry; your answer is saved.",
+        "provider_unavailable",
+        false,
+      );
+    }
+    return new ProviderError("OpenAI rate limit reached for this model. Wait a minute and retry; your answer is saved.", "provider_unavailable", true);
   }
   if (err instanceof OpenAI.InternalServerError) {
     return new ProviderError("OpenAI is unavailable. Your answer is saved; you can retry.", "provider_unavailable", true);
