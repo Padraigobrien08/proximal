@@ -63,7 +63,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
 | `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]` | One real call per provider job (17 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
-| `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
+| `npm run usage [-- --days 7] [--prices f.json] [--write-prices]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens, average latency and estimated cost (from your price list), plus totals and rolling 24 h usage against the caps. `--write-prices` creates the price-list template. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
 All scripts are local developer utilities, not browser endpoints. They load `.env` if it exists; variables already set in the
@@ -166,8 +166,10 @@ scripts/              migrate, seed, demo reset, eval, content review, question 
 
 - **Usage metering.** Every live provider call (assessment, curriculum, tutor, and live eval runs) is recorded in
   `provider_calls`: job, vendor, model, prompt version, status, error code, latency and token counts. Prompts, answers,
-  documents and keys are never stored there. `npm run usage` summarises it. Costs are not computed; multiply the token counts by
-  your provider's current prices.
+  documents and keys are never stored there. `npm run usage` summarises it, with **estimated costs** from a price list you
+  maintain at `$PROXIMAL_DATA_DIR/prices.json`, per million input and output tokens for each `vendor:model`, with the date you
+  checked them. No prices are built in, because provider prices change: an unpriced model shows "price not set" and is named.
+  `npm run usage -- --write-prices` creates or extends the file with every model seen, prices left empty. Estimates are not a bill.
 - **Caps and concurrency.** `PROXIMAL_DAILY_CALL_LIMIT` and `PROXIMAL_DAILY_TOKEN_LIMIT` (rolling 24 hours) are checked before
   every live call. Over a cap the call is refused before reaching the provider, recorded as `blocked`, and the attempt stays
   saved and retryable. `PROXIMAL_MAX_CONCURRENT_CALLS` (default 2) queues extra simultaneous calls.
