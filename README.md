@@ -394,8 +394,13 @@ single finalisation under concurrent retries, out-of-order completions, payload 
 adversarial model output, timeout handling, direct source exposure and PDF error paths. It also covers the Claude adapter (structured
 output, single repair, tool-call rejection, timeout mapping) and the loopback request guard.
 
-`npm run test:e2e` runs the two key-free browser flows: the mock showcase with refresh persistence, and the sample PDF import with
-draft edit, approval, page references and disabled review.
+`npm run test:e2e` runs the six key-free browser flows against a production build: the showcase with refresh persistence, the
+sample PDF import through question drafting and approval, resume and flagging, a failed assessment and its retry (fault-injection
+server), Continue, and lecture chat.
+
+**CI** (`.github/workflows/ci.yml`) runs typecheck, lint, `npm test` and `npm run test:e2e` on every pull request and on pushes to
+`main`, in offline mode with no secrets. Playwright traces are uploaded when the browser tests fail. The live smoke test and live
+evaluation are deliberately not in CI: they cost money and need an API key, and this repository is public.
 
 ## Security model (local only)
 
