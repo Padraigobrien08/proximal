@@ -20,6 +20,7 @@ import {
   listAttemptsForSessionQuestion,
   listExposures,
   listQuestionsForSkill,
+  usableForChecks,
   listSessionQuestions,
   listSkillsForTopic,
   listSourcePages,
@@ -95,7 +96,10 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
     for (const id of input.skillIds) if (!allowed.has(id)) throw new AppError("validation", `Skill ${id} is not in this topic.`);
     skillIds = input.skillIds;
   }
-  const withQuestions = skillIds.filter((id) => listQuestionsForSkill(ctx.db, id).some((q) => q.status !== "excluded"));
+  // Checks need a question an independent check may use; learning and practice can also use practice-only ones.
+  const withQuestions = skillIds.filter((id) =>
+    listQuestionsForSkill(ctx.db, id).some((q) => (mode === "review" ? usableForChecks(q) : q.status !== "excluded")),
+  );
 
   // Never start a duplicate: an unfinished active session of the same kind for this topic is resumed instead.
   const existing = findResumableSession(ctx, topic.id, mode, input.skillIds);
@@ -139,7 +143,9 @@ export function startSession(ctx: AppContext, input: StartSessionInput): { sessi
     });
     chosen.forEach((skillId, ordinal) => {
       const questions = listQuestionsForSkill(ctx.db, skillId);
-      const pick = selectQuestion(questions, lastAttemptByFamily(ctx.db, skillId), purpose === "practice" ? "practice" : "check");
+      const pick = selectQuestion(questions, lastAttemptByFamily(ctx.db, skillId), purpose === "practice" ? "practice" : "check", {
+        allowPracticeOnly: mode !== "review",
+      });
       if (!pick) return;
       const q = questions.find((x) => x.id === pick.questionId)!;
       const frozen: QuestionPrivate = {

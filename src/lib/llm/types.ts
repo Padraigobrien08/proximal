@@ -56,6 +56,15 @@ export interface PacerClassifyInput {
   objectives: import("../pacer/validation").PacerObjectiveInput[];
 }
 
+export interface QuestionDraftInput {
+  courseTitle: string;
+  unitTitle: string;
+  /** The skill objective the questions must assess. */
+  objective: string;
+  /** Approved source pages for the unit. Untrusted data. */
+  sourcePages: { page: number; text: string }[];
+}
+
 export type LiveVendor = "anthropic" | "openai";
 
 export interface ProviderMeta {
@@ -84,6 +93,11 @@ export interface LearningProvider {
    * job. The server validates ids, schema and quotes; the provider never writes state.
    */
   classifyPacer?(input: PacerClassifyInput): Promise<{ results: unknown[]; meta: ProviderMeta }>;
+  /**
+   * Draft assessment questions for one skill (unvalidated). Metered as the curriculum job. Drafts are stored for owner
+   * review and never used in a check until approved.
+   */
+  draftQuestions?(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }>;
 }
 
 export class ProviderError extends Error {
@@ -101,4 +115,5 @@ export const OFFLINE_ASSESS_MESSAGE = "Offline demo can assess the supplied exam
 export const OFFLINE_CURRICULUM_MESSAGE = "Offline mode cannot generate a curriculum for this file.";
 export const OFFLINE_CHAT_MESSAGE = "Offline mode has no AI chat. Showing the most relevant lecture pages instead.";
 export const OFFLINE_PACER_MESSAGE = "Offline mode has authored classifications for the curated demo contexts only.";
+export const OFFLINE_QUESTION_DRAFT_MESSAGE = "Offline mode can only prepare questions for the authored sample lecture.";
 export const OFFLINE_TUTOR_MESSAGE = "Offline mode has no tutor. Only the checked fixture explanations are available.";

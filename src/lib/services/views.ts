@@ -16,6 +16,7 @@ import {
   getUnit,
   listCourses,
   listQuestionsForSkill,
+  usableForChecks,
   listSkillsForTopic,
   listSourcePages,
   listSourcesForCourse,
@@ -36,7 +37,7 @@ export function providerInfo(ctx: AppContext) {
 }
 
 function reviewAvailable(ctx: AppContext, skillId: string): boolean {
-  return listQuestionsForSkill(ctx.db, skillId).some((q) => q.status !== "excluded");
+  return listQuestionsForSkill(ctx.db, skillId).some(usableForChecks);
 }
 
 export interface CourseListItem {
@@ -123,7 +124,7 @@ export function collectPlanInput(ctx: AppContext, scope: PlanScope = {}) {
           dueAt: st.dueAt,
           reassessmentNeeded: st.reassessmentNeeded,
           attempted: attempts.length > 0,
-          reviewAvailable: questions.length > 0,
+          reviewAvailable: questions.some(usableForChecks),
           learnAvailable: questions.length > 0 || ctx.providerStatus.mode === "live",
         });
       });
@@ -332,8 +333,8 @@ export function getTopicView(ctx: AppContext, topicId: string) {
       freshnessLabel: freshness ? FRESHNESS_LABELS[freshness] : null,
       isDue: st.dueAt !== null && st.dueAt <= now,
       missingApplicationCoverage: s.transferRequired && !st.transferCovered,
-      coverageNote: coverageNote(st, published.length > 0, s.transferRequired),
-      reviewAvailable: published.length > 0,
+      coverageNote: coverageNote(st, published.some(usableForChecks), s.transferRequired),
+      reviewAvailable: published.some(usableForChecks),
       applicationSkill: !!primary && isApplicationTask(primary.taskType),
       taskType: primary?.taskType ?? null,
       checkInProgress: evidenceAttemptsForSkill(ctx.db, s.id).some((a) => hidden.has(a.sessionId)),

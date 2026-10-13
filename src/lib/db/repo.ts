@@ -425,9 +425,19 @@ interface RawQuestion {
   status: QuestionStatus;
   reviewed_by: string | null;
   reviewed_at: number | null;
+  practice_only: number;
 }
 
-export type QuestionRecord = QuestionPrivate & { examples: ExampleFixture[]; reviewedBy: string | null; reviewedAt: number | null };
+export type QuestionRecord = QuestionPrivate & {
+  examples: ExampleFixture[];
+  reviewedBy: string | null;
+  reviewedAt: number | null;
+  /** Never selected for an independent check (e.g. the owner saw its answer key during review). */
+  practiceOnly: boolean;
+};
+
+/** A question an independent check may use. */
+export const usableForChecks = (q: Pick<QuestionRecord, "status" | "practiceOnly">) => q.status !== "excluded" && !q.practiceOnly;
 
 const mapQuestion = (r: RawQuestion): QuestionRecord => ({
   id: r.id,
@@ -446,13 +456,14 @@ const mapQuestion = (r: RawQuestion): QuestionRecord => ({
   status: r.status,
   reviewedBy: r.reviewed_by,
   reviewedAt: r.reviewed_at,
+  practiceOnly: !!r.practice_only,
 });
 
-export function insertQuestion(db: DB, q: QuestionPrivate & { examples: ExampleFixture[] }) {
+export function insertQuestion(db: DB, q: QuestionPrivate & { examples: ExampleFixture[]; practiceOnly?: boolean }) {
   db.prepare(
     `INSERT INTO questions (id, skill_id, version, family_id, is_transfer, task_type, prompt, reference_json, rubric_json,
-       hints_json, source_refs_json, reveal_skill_ids_json, examples_json, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       hints_json, source_refs_json, reveal_skill_ids_json, examples_json, status, practice_only)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     q.id,
     q.skillId,
@@ -468,6 +479,7 @@ export function insertQuestion(db: DB, q: QuestionPrivate & { examples: ExampleF
     JSON.stringify(q.revealSkillIds),
     JSON.stringify(q.examples),
     q.status,
+    q.practiceOnly ? 1 : 0,
   );
 }
 

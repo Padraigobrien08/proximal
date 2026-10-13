@@ -1,7 +1,7 @@
 // Read model for mastery levels: subtopic (unit) levels and their topic/module rollups. Public data only.
 import { CHECKED, levelOf, rollup, subtopicLevel, type Level, type LevelRollup } from "../domain/levels";
 import { relativeWhen } from "../domain/labels";
-import { listQuestionsForSkill, listSkillsForUnit, listTopics, listUnits } from "../db/repo";
+import { listQuestionsForSkill, listSkillsForUnit, listTopics, listUnits, usableForChecks } from "../db/repo";
 import type { AppContext } from "./context";
 import { displaySkillState, openCheckpointSessionIds } from "./evidence";
 
@@ -39,7 +39,7 @@ export function topicSubtopics(ctx: AppContext, topicId: string, hidden: Set<str
     .map((u) => {
       const skills = listSkillsForUnit(ctx.db, u.id).map((s) => {
         const st = displaySkillState(ctx, s.id, hidden);
-        const reviewAvailable = listQuestionsForSkill(ctx.db, s.id).some((q) => q.status !== "excluded");
+        const reviewAvailable = listQuestionsForSkill(ctx.db, s.id).some(usableForChecks);
         return { id: s.id, required: s.required, state: st, evidenceState: st.evidenceState, reviewAvailable };
       });
       if (skills.length === 0) return null;

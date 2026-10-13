@@ -61,7 +61,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
-| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer]` | One real call per provider job (6 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer,questions]` | One real call per provider job (7 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -311,9 +311,30 @@ and sessions keep a frozen copy). Then run `npm run db:seed`. Use `--status excl
   then **approve** explicitly. Re-importing the same bytes reopens the existing course instead of duplicating it.
 - After approval, objectives are frozen. **Revise objective** creates a new unit version with new skill IDs and fresh evidence;
   the old version is marked superseded and its history is kept.
-- Approved imports show "Reviewed assessment questions needed", and **independent review stays disabled** until a question bank
-  is attached with `npm run questions:import`. Imported objectives are never auto-mapped to demo questions. In live mode, learning
-  sessions can request source-grounded tutor explanations.
+- Approved imports show "Reviewed assessment questions needed", and **independent review stays disabled** until a subtopic has an
+  approved question: drafted in the app (below) or attached with `npm run questions:import`. Imported objectives are never
+  auto-mapped to demo questions. In live mode, learning sessions can request source-grounded tutor explanations.
+
+## Drafting check questions
+
+On an imported topic page, **Check questions** drafts two questions per subtopic from its approved PDF pages (curriculum job model,
+prompt `question-draft-v1`, at most 24,000 characters of source per request): a first question and a structurally different
+new-context question. Each comes with a reference answer, a rubric, numeric checks for calculations, two hints and example answers.
+
+- **Drafts are never used.** They live in `question_drafts`. Only approval copies a draft, re-validated, into `questions`.
+  Server-side checks run on every question separately: unique criterion ids, at least one essential criterion, numeric checks
+  only on known criteria and never on explain questions, pages limited to the subtopic's own, a correct example expected to pass
+  plus a partial or wrong one, and a stated structural change for the new-context question. A failing question is stored as
+  *invalid* beside the valid one and cannot be approved until it is fixed.
+- **The answer key starts hidden**, because the learner is also the reviewer. **Approve for checks** is offered only while the key is
+  closed. Those questions are stored as `authored_fixture` with no reviewer, since nobody read the marking scheme, and they are
+  labelled as AI drafts. Opening the key (after a confirmation) allows editing, then **Approve for practice**: the question is
+  stored `owner_reviewed` and `practice_only`, and is never selected for an independent check. Learning sessions can use it.
+- Review is refused while a check is open on the topic. A provider failure stores nothing and can be retried.
+- Offline mode drafts the authored sample-bank questions, and only for an imported copy of the sample lecture whose objectives match
+  exactly. Those questions have no recorded judgements, so offline grading of them is always *uncertain*.
+- The live smoke test drafted 2/2 valid questions with `gpt-5.5-2026-04-23` on 2026-10-12. That shows the pipeline works, not
+  that the questions are good: read a few drafts critically before you rely on them.
 
 ## Evaluation harness
 
@@ -372,7 +393,7 @@ draft edit, approval, page references and disabled review.
 - **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
   fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
   do not set it in normal use.
-- **Not implemented** (deferred by the brief): authentication, hosting, OCR and vision import, question generation, semantic
+- **Not implemented** (deferred by the brief): authentication, hosting, OCR and vision import, semantic
   deduplication, probabilistic mastery, background workers, notifications, analytics, dispute resolution, and sophisticated history
   migration beyond the new-version duplicate described above.
 - **No claims of learning gains, verified closed-book performance, participant data or human content review are made.**

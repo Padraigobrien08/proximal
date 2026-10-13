@@ -7,6 +7,7 @@ import {
   OFFLINE_ASSESS_MESSAGE,
   OFFLINE_PACER_MESSAGE,
   OFFLINE_CURRICULUM_MESSAGE,
+  OFFLINE_QUESTION_DRAFT_MESSAGE,
   OFFLINE_TUTOR_MESSAGE,
   ProviderError,
   type AssessmentInput,
@@ -14,11 +15,13 @@ import {
   type CurriculumInput,
   type LearningProvider,
   type PacerClassifyInput,
+  type QuestionDraftInput,
   type ProviderMeta,
 } from "./types";
 
 export const MOCK_PROMPT_VERSION = "mock-fixture-v1";
 export const MOCK_PACER_PROMPT_VERSION = "pacer-offline-fixture-v1";
+export const MOCK_DRAFT_PROMPT_VERSION = "question-draft-offline-fixture-v1";
 
 export interface MockProviderDeps {
   /** Authored example answers for a question id. */
@@ -27,6 +30,8 @@ export interface MockProviderDeps {
   sampleLecture: { sha256: string; draft: CurriculumDraft } | null;
   /** Authored PACER annotation for an exactly matching classification context, else null. */
   pacerAnnotation?(contextHash: string): Record<string, unknown> | null;
+  /** Authored questions, in draft form, for a skill objective that exactly matches the sample curriculum, else null. */
+  authoredDrafts?(objective: string): unknown | null;
 }
 
 const meta: ProviderMeta = { mode: "mock", model: null, promptVersion: MOCK_PROMPT_VERSION, usage: null };
@@ -82,6 +87,13 @@ export class MockProvider implements LearningProvider {
       return { kind: "abstain", objectiveId: o.objectiveId, reason: "insufficient_context", message: OFFLINE_PACER_MESSAGE };
     });
     return { results, meta: { ...meta, promptVersion: MOCK_PACER_PROMPT_VERSION } };
+  }
+
+  /** The authored sample questions for an exactly matching sample-lecture objective; anything else is unsupported. */
+  async draftQuestions(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }> {
+    const batch = this.deps.authoredDrafts?.(input.objective.trim());
+    if (!batch) throw new ProviderError(OFFLINE_QUESTION_DRAFT_MESSAGE, "offline_unsupported", false);
+    return { batch, meta: { ...meta, promptVersion: MOCK_DRAFT_PROMPT_VERSION } };
   }
 }
 
