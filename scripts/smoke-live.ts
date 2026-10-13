@@ -22,13 +22,14 @@ import { PDFDocument } from "pdf-lib";
 import { renderPagesAsJpeg } from "../src/lib/pdf/render";
 import { classifyTopic } from "../src/lib/services/pacer";
 import { checkDraftBatch } from "../src/lib/questions/drafts";
+import { selfCheckDraft } from "../src/lib/services/questionDrafts";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
 const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "ocr", "pacer", "questions"] as const;
 type Job = (typeof JOBS)[number];
 // Paid calls per job, so the confirmation message is exact.
-const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, ocr: 1, pacer: 1, questions: 1 };
+const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, ocr: 1, pacer: 1, questions: 7 };
 
 loadDotEnv();
 const only = arg("only")?.split(",").map((s) => s.trim()) as Job[] | undefined;
@@ -212,8 +213,14 @@ if (jobs.includes("questions")) {
     });
     const { drafts, batchProblems } = checkDraftBatch(batch, [5]);
     const problems = [...batchProblems, ...drafts.flatMap((d) => (d.ok ? [] : d.problems))];
-    const valid = drafts.filter((d) => d.ok).length;
-    return { ok: valid === 2 && problems.length === 0, detail: `${valid}/2 valid (${meta.model})${problems.length ? `; problems: ${problems.join("; ")}` : ""}` };
+    const valid = drafts.flatMap((d) => (d.ok ? [d.question] : []));
+    // Each valid draft's examples are graded against its own scheme, as the drafting job does.
+    const checks = await Promise.all(valid.map((q) => selfCheckDraft(ctx, q, pages.map((p) => `[page ${p.page}]\n${p.text}`).join("\n\n"))));
+    const checkText = checks.map((c) => `${c.status} (${c.results.map((r) => `${r.label}->${r.got}`).join(", ")})`).join("; ");
+    return {
+      ok: valid.length === 2 && problems.length === 0 && checks.every((c) => c.status === "passed"),
+      detail: `${valid.length}/2 valid (${meta.model}); marking checks: ${checkText}${problems.length ? `; problems: ${problems.join("; ")}` : ""}`,
+    };
   });
 }
 

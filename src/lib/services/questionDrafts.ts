@@ -25,10 +25,12 @@ import {
   listQuestionDraftsForSkill,
   markDraftAnswerSeen,
   updateQuestionDraftContent,
+  type DraftSelfCheck,
   type QuestionDraftRow,
 } from "../db/questionDraftsRepo";
 import { enqueueJob, latestJob } from "../db/jobsRepo";
 import { notifyJobsQueued } from "../jobs/signal";
+import { aggregateOutcome } from "../domain/assessment";
 import { ProviderError } from "../llm/types";
 import { checkDraftBatch, draftQuestionSchema, MAX_DRAFT_SOURCE_CHARS, questionProblems, type DraftQuestion } from "../questions/drafts";
 import type { AppContext } from "./context";
@@ -122,6 +124,8 @@ export async function generateQuestionDrafts(ctx: AppContext, skillId: string) {
   );
   const prov = providerIdentity(ctx);
   const providerModel = res.meta.mode === "live" ? `${res.meta.vendor ?? "live"}:${res.meta.model}` : prov.model;
+  const sourceText = pages.map((p) => `[page ${p.page}]\n${p.text}`).join("\n\n");
+  const selfChecks = await Promise.all(drafts.map((d) => (d.ok ? selfCheckDraft(ctx, d.question, sourceText) : Promise.resolve(null))));
   const batchId = newId();
   const now = ctx.clock.now();
   ctx.db.transaction(() => {
@@ -138,10 +142,49 @@ export async function generateQuestionDrafts(ctx: AppContext, skillId: string) {
         providerModel,
         promptVersion: res.meta.promptVersion,
         createdAt: now,
+        selfCheck: selfChecks[i],
       });
     });
   })();
   return { drafted: drafts.filter((d) => d.ok).length, invalid: drafts.filter((d) => !d.ok).length, batchProblems, skill: skillDraftsView(ctx, skill, unit) };
+}
+
+/**
+ * Grade a draft's own example answers with the assessor, against the draft's own rubric, exactly as a learner's
+ * answer would be graded. A scheme that fails its own correct example, or passes its own partial or wrong one, would
+ * mis-grade real answers. Offline, the fixture assessor cannot grade new text, so the check is skipped.
+ */
+export async function selfCheckDraft(ctx: AppContext, q: DraftQuestion, sourceText: string): Promise<DraftSelfCheck> {
+  if (ctx.providerStatus.mode !== "live") {
+    return { status: "skipped", results: [], message: "Offline mode cannot test the marking scheme." };
+  }
+  const rubric = { version: 1, criteria: q.criteria };
+  const reference = { summary: q.referenceSummary, numericChecks: q.numericChecks };
+  try {
+    const results = await Promise.all(
+      q.examples.map(async (e) => {
+        const { output } = await ctx.provider.assessAnswer({
+          questionId: "draft-self-check",
+          taskType: q.taskType,
+          prompt: q.prompt,
+          rubric,
+          reference,
+          sourceText,
+          answer: e.answer,
+        });
+        return { label: e.label, expected: e.expectedOutcome, got: aggregateOutcome(output, rubric, e.answer, q.numericChecks).outcome };
+      }),
+    );
+    const bad = results.filter((r) => (r.label === "correct" ? r.got !== "pass" : r.got === "pass"));
+    if (bad.length === 0) {
+      return { status: "passed", results, message: `The grader marked all ${results.length} example answers as their labels say.` };
+    }
+    const what = bad.map((r) => (r.label === "correct" ? `the correct example was graded ${r.got}` : `the ${r.label} example was graded pass`));
+    return { status: "failed", results, message: `The marking scheme mis-graded its own examples: ${what.join("; ")}.` };
+  } catch (err) {
+    const message = err instanceof ProviderError ? err.message : "Unexpected error.";
+    return { status: "error", results: [], message: `The marking check could not run: ${message}` };
+  }
 }
 
 /** The parts of a draft that are safe to show before the answer key is opened. */
@@ -185,6 +228,8 @@ function skillDraftsView(ctx: AppContext, skill: SkillRow, unit: UnitRow) {
         // Problems name criteria and values, so they are shown only with the key.
         problemCount: d.problems.length,
         answerSeen: d.answerSeen,
+        // Outcomes only, never the example answers, so it is safe with the key closed. Stale after an owner edit.
+        selfCheck: d.selfCheck ? { status: d.selfCheck.status, message: d.selfCheck.message, stale: d.edited } : null,
         answerKey: d.answerSeen ? { question: d.question, problems: d.problems } : null,
         edited: d.edited,
         providerLabel: draftProviderLabel(d),
@@ -262,6 +307,15 @@ export function approveQuestionDraft(ctx: AppContext, draftId: string, use: "che
   if (draft.status === "invalid") throw new AppError("validation", "Open the answer key and fix the listed problems before approving this question.");
   if (use === "checks" && draft.answerSeen) {
     throw new AppError("validation", "You've seen this question's answer key, so it can only be approved for practice.");
+  }
+  // Nobody reads the scheme of a question approved for checks, so the live grader must have passed its own examples.
+  if (use === "checks" && draft.providerMode === "live" && draft.selfCheck?.status !== "passed") {
+    throw new AppError(
+      "validation",
+      draft.selfCheck?.status === "failed"
+        ? `This question can't be approved for checks: ${draft.selfCheck.message} Reject it or draft again.`
+        : "This question's marking scheme hasn't been tested, so it can't be approved for checks. Draft again to retest it.",
+    );
   }
   const parsed = draftQuestionSchema.safeParse(draft.question);
   const problems = parsed.success ? questionProblems(parsed.data, owned.unit.sourceRefs.map((r) => r.page)) : ["stored draft is malformed"];

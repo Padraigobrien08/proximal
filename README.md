@@ -61,7 +61,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
-| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]` | One real call per provider job (11 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]` | One real call per provider job (17 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -344,6 +344,11 @@ new-context question. Each comes with a reference answer, a rubric, numeric chec
   only on known criteria and never on explain questions, pages limited to the subtopic's own, a correct example expected to pass
   plus a partial or wrong one, and a stated structural change for the new-context question. A failing question is stored as
   *invalid* beside the valid one and cannot be approved until it is fixed.
+- **Marking check.** In live mode the drafting job grades each draft's own example answers with the real assessor, against the
+  draft's own rubric, before storing it (about 6 extra assessment calls per subtopic). The check fails if the correct example does not
+  pass, or a partial or wrong example does. A partial graded *fail* is tolerated, because both count the same for evidence. The
+  card shows the result without the answers. **Approve for checks needs a passed check**, because nobody reads that scheme; a failed
+  or untested draft can still be opened and approved for practice. Offline, the check is skipped (sample-bank questions are authored).
 - **The answer key starts hidden**, because the learner is also the reviewer. **Approve for checks** is offered only while the key is
   closed. Those questions are stored as `authored_fixture` with no reviewer, since nobody read the marking scheme, and they are
   labelled as AI drafts. Opening the key (after a confirmation) allows editing, then **Approve for practice**: the question is
@@ -367,9 +372,19 @@ are correct, partial, incorrect, ambiguous, equivalent and injection). It runs t
 
 - `--mode mock` is a **software check** of the offline path. Non-fixture answers are expected to abstain.
 - `--mode live --yes [--limit N]` uses whichever live provider `LLM_MODE` selects, needs its key and model, prints the number of paid calls, and refuses to run without `--yes`.
+- `--repeat N` grades every case N times and reports how many cases changed outcome and whether any run promoted a definite
+  partial or fail. Each row records the criterion judgements and the report lists every mismatch, so a disagreement can be traced
+  to a specific criterion.
 
 The cases are authored development examples. Their labels are provisional until a person reviews them. They are not a held-out
 benchmark, and passing them is not evidence of universal grading accuracy or injection resistance.
+
+**Latest live run** (2026-10-12, `openai:gpt-5.5-2026-04-23`, `--repeat 3`, 138 calls): 42/46 exact matches, **0 false promotions
+in 26 definite partial/fail cases in any run**, and 45/46 cases graded identically in all three runs. The one unstable case (S3-A,
+incorrect) moved between partial and fail. All four mismatches were graded *partial*: two answers labelled *fail* got credit for
+half a criterion (S1-A, S3-A), and two labelled *uncertain* ("Maybe? It depends." for S4-B; a bare "0.22" for S5-A) were graded on
+their criteria instead of abstaining. Partial and fail count the same for evidence, so none of these changes a level. They are label
+questions for a human reviewer rather than grader faults, and they are not evidence of accuracy on other material.
 
 ## Tests
 

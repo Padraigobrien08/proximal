@@ -20,6 +20,8 @@ const mode = (arg("mode") ?? "mock") as "mock" | "live";
 if (mode !== "mock" && mode !== "live") throw new Error("--mode must be mock or live");
 const casesFile = path.resolve(arg("cases") ?? "fixtures/eval/cases.jsonl");
 const limit = arg("limit") ? Number(arg("limit")) : undefined;
+// Grade every case this many times to measure run-to-run stability (live grading is not deterministic).
+const repeat = Math.max(1, Math.min(10, Number(arg("repeat") ?? 1)));
 
 const caseSchema = z.strictObject({
   questionId: z.string(),
@@ -56,7 +58,9 @@ if (mode === "live") {
   }
   const live = createLiveProvider(env);
   if (!flag("yes")) {
-    console.error(`Live evaluation will make ${cases.length} paid API calls to ${live.vendor}:${live.model}. Re-run with --yes to proceed (use --limit N to run fewer).`);
+    console.error(
+      `Live evaluation will make ${cases.length * repeat} paid API calls to ${live.vendor}:${live.model}. Re-run with --yes to proceed (use --limit N to run fewer).`,
+    );
     process.exit(1);
   }
   // Live eval calls are metered into the app database (npm run usage) and respect the daily caps.
@@ -78,11 +82,10 @@ const confusion: Record<string, Record<string, number>> = Object.fromEntries(
 const rows: unknown[] = [];
 let providerErrors = 0;
 
-for (const c of cases) {
+type Judgement = { criterionId: string; status: string; briefReason: string };
+async function gradeOnce(c: (typeof cases)[number]): Promise<{ predicted: AttemptOutcome; problems: string[]; criteria: Judgement[]; misconception: string | null }> {
   const q = bank.questions.find((x) => x.id === c.questionId);
   if (!q) throw new Error(`Unknown question ${c.questionId}`);
-  let predicted: AttemptOutcome;
-  let problems: string[] = [];
   try {
     const { output } = await provider.assessAnswer({
       questionId: q.id,
@@ -94,15 +97,26 @@ for (const c of cases) {
       answer: c.answer,
     });
     const agg = aggregateOutcome(output, q.rubric, c.answer, q.reference.numericChecks);
-    predicted = agg.outcome;
-    problems = agg.problems;
+    return {
+      predicted: agg.outcome,
+      problems: agg.problems,
+      criteria: output.criteria.map((j) => ({ criterionId: j.criterionId, status: j.status, briefReason: j.briefReason })),
+      misconception: output.possibleMisconception,
+    };
   } catch (err) {
     providerErrors += 1;
-    predicted = "uncertain";
-    problems = [`provider error: ${(err as Error).message}`];
+    return { predicted: "uncertain", problems: [`provider error: ${(err as Error).message}`], criteria: [], misconception: null };
   }
+}
+
+for (const c of cases) {
+  const runs = [];
+  for (let k = 0; k < repeat; k++) runs.push(await gradeOnce(c));
+  // The first run is scored; the others measure whether the same answer gets the same outcome.
+  const { predicted, problems, criteria, misconception } = runs[0];
   confusion[c.expectedOutcome][predicted] += 1;
-  rows.push({ ...c, predicted, problems });
+  const outcomes = runs.map((r) => r.predicted);
+  rows.push({ ...c, predicted, problems, criteria, misconception, ...(repeat > 1 ? { runOutcomes: outcomes, stable: new Set(outcomes).size === 1 } : {}) });
 }
 
 const definiteNonPass = cases.filter((c) => c.expectedOutcome === "partial" || c.expectedOutcome === "fail");
@@ -142,6 +156,21 @@ const report = {
     rate: definiteExpected.length ? definiteDecided / definiteExpected.length : 0,
   },
   falsePromotions: { count: falsePromotions, denominatorDefiniteNonPass: definiteNonPass.length },
+  /** With --repeat: cases whose outcome changed between runs, and any run that promoted a definite partial/fail. */
+  stability:
+    repeat > 1
+      ? (() => {
+          const r = rows as { stable: boolean; expectedOutcome: string; runOutcomes: string[] }[];
+          return {
+            repeat,
+            unstableCases: r.filter((x) => !x.stable).length,
+            anyRunFalsePromotions: r.filter((x) => (x.expectedOutcome === "partial" || x.expectedOutcome === "fail") && x.runOutcomes.includes("pass")).length,
+          };
+        })()
+      : null,
+  mismatches: (rows as { questionId: string; caseType: string; expectedOutcome: string; predicted: string }[])
+    .filter((r) => r.expectedOutcome !== r.predicted)
+    .map((r) => ({ questionId: r.questionId, caseType: r.caseType, expected: r.expectedOutcome, predicted: r.predicted })),
   expectedUncertainCases: (rows as { expectedOutcome: string }[]).filter((r) => r.expectedOutcome === "uncertain"),
   rows,
 };
@@ -154,5 +183,11 @@ console.log(`Provider: ${mode}${provider.model ? ` (${provider.vendor}:${provide
 console.log(`Cases: ${cases.length} · exact matches: ${exactMatches} · abstentions: ${predictedUncertain} · provider errors: ${providerErrors}`);
 console.log(`Decision coverage on definite cases: ${definiteDecided}/${definiteExpected.length}`);
 console.log(`False promotions: ${falsePromotions} of ${definiteNonPass.length} definite partial/fail cases`);
+if (report.stability) {
+  console.log(
+    `Stability over ${repeat} runs: ${report.stability.unstableCases} case(s) changed outcome; ${report.stability.anyRunFalsePromotions} case(s) promoted in at least one run`,
+  );
+}
+for (const m of report.mismatches) console.log(`  mismatch ${m.questionId} (${m.caseType}): expected ${m.expected}, got ${m.predicted}`);
 console.log(`Report: ${out}`);
 db.close();

@@ -19,6 +19,8 @@ interface PendingDraft {
   sourcePages: number[];
   problemCount: number;
   answerSeen: boolean;
+  /** The grader's verdict on the draft's own example answers (outcomes only). */
+  selfCheck: { status: "passed" | "failed" | "error" | "skipped"; message: string; stale: boolean } | null;
   answerKey: { question: unknown; problems: string[] } | null;
   edited: boolean;
   providerLabel: string;
@@ -227,6 +229,8 @@ function DraftCard(props: {
 }) {
   const { draft: d } = props;
   const key = d.answerKey?.question as DraftQuestion | undefined;
+  // Live drafts need a passed marking check before they can be used blind; offline sample questions are authored.
+  const checkOk = d.selfCheck?.status === "passed" || d.selfCheck?.status === "skipped";
   return (
     <div className="mt-3 rounded-[10px] bg-paper p-4" data-testid={`draft-${d.id}`}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -240,6 +244,15 @@ function DraftCard(props: {
       </div>
       <MathText text={d.prompt} className="mt-2 block text-sm" />
       {d.familyRole === "new_context" && d.transferChange && <p className="mt-1 text-xs text-muted">What changes: {d.transferChange}</p>}
+      {d.selfCheck && d.selfCheck.status !== "skipped" && (
+        <p
+          className={`mt-2 text-xs ${d.selfCheck.status === "passed" ? "text-teal-dark" : "text-amber-ink"}`}
+          data-testid="self-check"
+        >
+          Marking check: {d.selfCheck.message}
+          {d.selfCheck.stale && " (before your edit)"}
+        </p>
+      )}
 
       {props.confirmingReveal && (
         <Notice tone="warn" title="Open the answer key?">
@@ -261,7 +274,14 @@ function DraftCard(props: {
       {!props.editing && (
         <div className="mt-3 flex flex-wrap gap-2">
           {!d.answerSeen && d.status === "draft" && (
-            <button type="button" className={primaryBtn} disabled={props.disabled} onClick={() => props.onApprove("checks")} data-testid="approve-checks">
+            <button
+              type="button"
+              className={primaryBtn}
+              disabled={props.disabled || !checkOk}
+              title={checkOk ? undefined : "The marking scheme didn't pass its own example answers."}
+              onClick={() => props.onApprove("checks")}
+              data-testid="approve-checks"
+            >
               Approve for checks
             </button>
           )}
