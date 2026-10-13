@@ -84,6 +84,8 @@ interface SessionData {
   results: null | {
     allAssessed: boolean;
     pendingAttemptIds: string[];
+    gradingAttemptIds: string[];
+    failedAttemptIds: string[];
     feedbackReleased: boolean;
     skills: ResultSkill[];
     summary: string;
@@ -799,7 +801,9 @@ function ResultsPanel({
                 {!s.answered
                   ? "Not answered in this check, so it stays unassessed."
                   : s.originalOutcome === null
-                    ? "Answer saved · assessment pending."
+                    ? results.gradingAttemptIds.includes(original?.id ?? "")
+                      ? "Answer saved · grading…"
+                      : "Answer saved · assessment pending."
                     : s.originalExcluded
                       ? "This judgement is excluded from your learning record."
                       : s.originalOutcome === "uncertain"
@@ -843,11 +847,17 @@ function ResultsPanel({
 
       {!results.allAssessed && (
         <div className="rounded-xl border border-line bg-card p-4">
-          <p className="text-sm">Your answers are saved. Some assessments are still running or didn&apos;t complete.</p>
+          <p className="text-sm" data-testid="results-grading">
+            {results.failedAttemptIds.length === 0
+              ? "Your answers are saved and being graded. This page updates by itself."
+              : results.gradingAttemptIds.length > 0
+                ? "Your answers are saved. Some are still being graded and some assessments didn't complete."
+                : "Your answers are saved. Some assessments didn't complete."}
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {results.pendingAttemptIds.map((id, i) => (
+            {results.failedAttemptIds.map((id, i) => (
               <button key={id} type="button" className={secondaryBtn} onClick={() => retry(id)} disabled={busy} data-testid="retry-assessment">
-                Retry assessment{results.pendingAttemptIds.length > 1 ? ` ${i + 1}` : ""}
+                Retry assessment{results.failedAttemptIds.length > 1 ? ` ${i + 1}` : ""}
               </button>
             ))}
             {!results.feedbackReleased && (

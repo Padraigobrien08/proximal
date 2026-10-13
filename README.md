@@ -146,13 +146,18 @@ fixtures/             lecture text, curriculum, 12-question bank with rubrics/hi
 scripts/              migrate, seed, demo reset, eval, content review, question import, export, delete
 ```
 
-- One Node process and one SQLite file. No ORM, no job queue, no event bus. `record_order` comes from a single counter row
+- One Node process and one SQLite file. No ORM, no external queue, no event bus. `record_order` comes from a single counter row
   shared by attempts and exposures, allocated inside the insertion transaction.
 - `review_states` is a cache. It is rebuilt by replaying a skill's attempts in submission order, each with its exposure snapshot
   frozen at submission (`evidenceAttemptsForSkill` → `replaySkill`). Completion order of model calls is irrelevant.
 - Assessment flow: claim a persisted `assessing` lease, then call the provider **outside** any transaction, then run
   compare-and-set finalisation, which inserts the unique assessment, marks the attempt assessed and rebuilds the skill state in one
   transaction. An expired lease can be retried. Only one final assessment per attempt is ever accepted.
+- Background jobs (`jobs` table, `src/lib/jobs/`): an in-process worker starts with the first request and runs at most two jobs
+  at once (`assess_attempt` for check answers, `draft_questions`). A job is claimed with a lease longer than its worst case, so
+  after a crash or restart it is picked up again; a job interrupted three times is marked failed. Jobs hold ids only, and the
+  handlers reuse the services' own safeguards, so a job that runs twice still yields one result. A job's `error` is a safe
+  user-facing message: never prompts, answers or keys. Queued work resumes when the server next handles a request.
 - `server-only` marks the DB, env and SDK modules. Scripts and tests run with the `react-server` condition (or an alias) so they can
   share the code.
 
@@ -330,7 +335,7 @@ new-context question. Each comes with a reference answer, a rubric, numeric chec
   closed. Those questions are stored as `authored_fixture` with no reviewer, since nobody read the marking scheme, and they are
   labelled as AI drafts. Opening the key (after a confirmation) allows editing, then **Approve for practice**: the question is
   stored `owner_reviewed` and `practice_only`, and is never selected for an independent check. Learning sessions can use it.
-- Review is refused while a check is open on the topic. A provider failure stores nothing and can be retried.
+- Drafting runs as a background job (`draft_questions`): the panel shows "Drafting…" and polls. Review is refused while a check is open on the topic. A provider failure stores no drafts; the panel shows its message and you can draft again.
 - Offline mode drafts the authored sample-bank questions, and only for an imported copy of the sample lecture whose objectives match
   exactly. Those questions have no recorded judgements, so offline grading of them is always *uncertain*.
 - The live smoke test drafted 2/2 valid questions with `gpt-5.5-2026-04-23` on 2026-10-12. That shows the pipeline works, not
@@ -385,8 +390,10 @@ draft edit, approval, page references and disabled review.
 - **The live tutor is used for imported units and for gap repair.** Demo units use their checked fixture explanations in both modes.
 - **"I don't know"** is recorded as an assessed fail by a deterministic rule (`provider_mode = rule`). In review mode it therefore
   counts as a valid independent fail.
-- **Checkpoint assessment runs during the submit request.** The learner still sees only "Answer saved". A provider timeout leaves
-  the attempt retryable.
+- **Check answers are graded in the background.** Saving a checkpoint answer queues an `assess_attempt` job and returns
+  "Answer saved" at once; the results screen shows "grading…" and polls until the grades land. Learning answers and corrections are
+  still graded within the request, because the learner is waiting for that feedback. A provider failure leaves the attempt saved as
+  `provider_error` with an explicit retry; it is never retried automatically.
 - **Live verification is a smoke test, not an evaluation.** `npm run smoke:live -- --yes` passed 6/6 on 2026-10-12 against OpenAI
   (`gpt-5.5-2026-04-23` for assessment and curriculum, `gpt-5.4-mini-2026-03-17` for the tutor). The Claude adapter is still tested
   with stubbed SDK clients only. Run the smoke test after changing a provider or model.
@@ -394,6 +401,6 @@ draft edit, approval, page references and disabled review.
   fail like a provider outage, so the pending/retry path can be browser-tested without credentials. It has no effect in live mode;
   do not set it in normal use.
 - **Not implemented** (deferred by the brief): authentication, hosting, OCR and vision import, semantic
-  deduplication, probabilistic mastery, background workers, notifications, analytics, dispute resolution, and sophisticated history
+  deduplication, probabilistic mastery, notifications, analytics, dispute resolution, and sophisticated history
   migration beyond the new-version duplicate described above.
 - **No claims of learning gains, verified closed-book performance, participant data or human content review are made.**

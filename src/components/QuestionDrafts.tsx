@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff, Sparkles } from "lucide-react";
 import type { DraftQuestion } from "@/lib/questions/drafts";
 import { api, ApiError } from "./api";
@@ -32,6 +32,8 @@ interface SkillDrafts {
   questions: { id: string; prompt: string; taskType: string; isTransfer: boolean; practiceOnly: boolean; origin: "ai_draft" | "bank"; originLabel: string }[];
   pending: PendingDraft[];
   rejectedCount: number;
+  /** Background drafting job in progress, or the last one failed. */
+  drafting: { status: "queued" | "running" | "failed"; error: string | null } | null;
 }
 
 interface DraftsData {
@@ -60,6 +62,14 @@ export function QuestionDraftsPanel({ topicId, checkInProgress, onChanged }: { t
   const [info, setInfo] = useState<string | null>(null);
   const [confirmReveal, setConfirmReveal] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const drafting = !!data?.skills.some((s) => s.drafting && s.drafting.status !== "failed");
+
+  // Drafting runs in the background: poll until it finishes, then tell the topic page its counts may have changed.
+  useEffect(() => {
+    if (!drafting) return;
+    const t = setInterval(reload, 2500);
+    return () => clearInterval(t);
+  }, [drafting, reload]);
 
   if (error) return <Notice tone="error">{error}</Notice>;
   if (!data || !data.available || data.skills.length === 0) return null;
@@ -84,16 +94,7 @@ export function QuestionDraftsPanel({ topicId, checkInProgress, onChanged }: { t
   }
 
   const generate = (skillId: string) =>
-    run(
-      `gen-${skillId}`,
-      async () => {
-        const res = await api<{ drafted: number; invalid: number; batchProblems: string[] }>(`/api/skills/${skillId}/question-drafts`, { method: "POST" });
-        if (res.invalid > 0 || res.batchProblems.length > 0) {
-          setErr(`${res.drafted} question${res.drafted === 1 ? "" : "s"} drafted; ${res.invalid} failed the checks${res.batchProblems.length ? ` (${res.batchProblems.join("; ")})` : ""}. You can reject them or draft again.`);
-        }
-      },
-      "Draft questions ready. Approve them before they're used.",
-    );
+    run(`gen-${skillId}`, () => api(`/api/skills/${skillId}/question-drafts`, { method: "POST" }), "Drafting in the background. You can keep studying; drafts appear here when ready.");
   const act = (draftId: string, json: Record<string, unknown>, done?: string) =>
     run(draftId, () => api(`/api/question-drafts/${draftId}`, { method: "POST", json }), done);
 
@@ -126,6 +127,7 @@ export function QuestionDraftsPanel({ topicId, checkInProgress, onChanged }: { t
       <ul className="mt-4 space-y-4">
         {data.skills.map((s) => {
           const forChecks = s.questions.filter((q) => !q.practiceOnly);
+          const inProgress = !!s.drafting && s.drafting.status !== "failed";
           return (
             <li key={s.skillId} className="rounded-[10px] border border-line p-4" data-testid={`question-drafts-${s.skillId}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -140,10 +142,24 @@ export function QuestionDraftsPanel({ topicId, checkInProgress, onChanged }: { t
                     {s.rejectedCount > 0 && <span>{s.rejectedCount} rejected</span>}
                   </p>
                 </div>
-                <button type="button" className={btn} disabled={!!busy || checkInProgress} onClick={() => generate(s.skillId)} data-testid={`draft-questions-${s.skillId}`}>
-                  {busy === `gen-${s.skillId}` ? "Drafting…" : s.pending.length > 0 || s.questions.length > 0 ? "Draft more" : "Draft questions"}
+                <button
+                  type="button"
+                  className={btn}
+                  disabled={!!busy || checkInProgress || inProgress}
+                  onClick={() => generate(s.skillId)}
+                  data-testid={`draft-questions-${s.skillId}`}
+                >
+                  {inProgress || busy === `gen-${s.skillId}` ? "Drafting…" : s.pending.length > 0 || s.questions.length > 0 ? "Draft more" : "Draft questions"}
                 </button>
               </div>
+              {inProgress && (
+                <p className="mt-2 text-sm text-muted" data-testid={`drafting-${s.skillId}`}>
+                  Drafting questions from PDF page {s.sourcePages.join(", ")}… This can take up to a minute.
+                </p>
+              )}
+              {s.drafting?.status === "failed" && (
+                <Notice tone="warn">Drafting didn&apos;t finish: {s.drafting.error ?? "unknown error"} You can try again.</Notice>
+              )}
 
               {s.questions.length > 0 && (
                 <ul className="mt-3 space-y-1.5">

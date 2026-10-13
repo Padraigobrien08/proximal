@@ -9,11 +9,13 @@ test("a failed assessment stays saved and pending, offers an explicit retry, and
   await page.getByTestId("start-review").click();
   await page.getByTestId("demo-example-correct").click();
   await page.getByTestId("submit-answer").click();
-  await expect(page.getByText("The assessment didn't complete")).toBeVisible();
+  // Check answers are graded in the background: saving never waits for the provider.
+  await expect(page.getByText("Answer saved.")).toBeVisible();
   await page.getByTestId("demo-example-wrong").click();
   await page.getByTestId("submit-answer").click();
 
   await expect(page.getByTestId("result-S4")).toContainText("Answer saved · assessment pending");
+  await expect(page.getByTestId("results-grading")).toContainText("didn't complete");
   await expect(page.getByTestId("result-S4")).toContainText("Not started");
   await expect(page.getByTestId("release-feedback")).toHaveCount(0);
 
