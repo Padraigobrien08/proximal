@@ -61,7 +61,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
-| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,pacer,questions]` | One real call per provider job (7 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,pacer,questions]` | One real call per provider job (10 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens and average latency, plus rolling 24 h usage against the caps. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -310,8 +310,13 @@ and sessions keep a frozen copy). Then run `npm run db:seed`. Use `--status excl
   `$PROXIMAL_DATA_DIR/uploads/` with a random name.
 - Text is extracted per page, with text-item boundaries preserved. A page with fewer than 40 non-whitespace characters gets a
   low-text warning; this is a heuristic. A PDF with no extractable text is rejected as likely scanned (OCR is not supported).
-- Live mode asks for 3–8 units with 1–3 skills each, validates page references, and rejects text inputs over 120,000 characters
-  instead of silently dropping pages.
+- Live mode asks for 3–8 units with 1–3 skills each and validates every page reference. **Long PDFs are drafted in parts**
+  (`src/lib/content/chunking.ts`, prompt `curriculum-v2`): balanced runs of whole consecutive pages of about 60,000 characters
+  (never over 80,000), so no page is split, dropped or sent twice. Each part is asked for 1–8 units citing only its own pages and is
+  validated against them. The parts are merged in page order, and a topic that continues across a boundary is joined. Any failing
+  part fails the whole import, so no partial course is stored. More than 8 parts, or one page over 80,000 characters, is rejected
+  with the reason. Parts tend to yield more units per page than a single request (the smoke test got 13 units from 6 pages split 3
+  ways, against 6 in one request), so expect to trim the draft.
 - Every import is a draft. You can edit titles, objectives and required flags, delete units or add objectives manually, save, and
   then **approve** explicitly. Re-importing the same bytes reopens the existing course instead of duplicating it.
 - After approval, objectives are frozen. **Revise objective** creates a new unit version with new skill IDs and fresh evidence;
