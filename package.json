@@ -24,6 +24,7 @@
     "data:delete-course": "tsx --conditions=react-server scripts/delete-course.ts",
     "db:backup": "tsx --conditions=react-server scripts/backup.ts",
     "usage": "tsx --conditions=react-server scripts/usage.ts",
+    "smoke:live": "tsx --conditions=react-server scripts/smoke-live.ts",
     "doctor": "tsx --conditions=react-server scripts/doctor.ts"
   },
   "dependencies": {

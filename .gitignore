@@ -50,3 +50,6 @@ next-env.d.ts
 !.env.example
 /.e2e-data-fault/
 /.visual-data/
+
+# Local design mockups
+docs/proximal/design/proximal-mastery-flow-mockup.html
