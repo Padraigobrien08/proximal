@@ -10,6 +10,7 @@ import {
   acceptAllDrafts,
   advanceActivity,
   classifyTopic,
+  requestResponseFeedback,
   reviewClassification,
   revealApproachDetails,
   setSkillConnection,
@@ -304,6 +305,56 @@ describe("learner-supplied familiar connection", () => {
     setSkillConnection(ctx, "S2", "coin flips");
     expect(setSkillConnection(ctx, "S2", "   ").learnerConnection).toBeNull();
     expect(() => setSkillConnection(ctx, "S2", "x".repeat(501))).toThrow(/under 500 characters/);
+  });
+});
+
+describe("tutor feedback on learning responses", () => {
+  async function completedActivity(withFeedback: boolean) {
+    const calls: unknown[] = [];
+    const { ctx } = await setup(
+      withFeedback
+        ? {
+            provider: (db) =>
+              Object.assign(createMockProvider(db), {
+                activityFeedback: async (i: unknown) => {
+                  calls.push(i);
+                  return { feedback: "Good mapping. Add where the comparison breaks down. What does independence assume?", meta: { mode: "live" as const, vendor: "openai" as const, model: "tutor-test", promptVersion: "f", usage: null } };
+                },
+              }),
+          }
+        : {},
+    );
+    setSkillConnection(ctx, "S2", "Like multiplying the odds of independent coin flips.");
+    reviewClassification(ctx, "S2", { action: "edit", primary: "analogous", secondary: [], reason: null, replacesDecisionId: null });
+    const { sessionId } = startSession(ctx, { topicId: LIKELIHOOD, purpose: "learn" });
+    const act = getSessionView(ctx, sessionId).activities.find((a) => a.skillId === "S2")!;
+    submitActivityResponse(ctx, sessionId, act.id, { submissionKey: randomUUID(), stepIndex: 0, text: "Each flip is an example; the product is the likelihood." });
+    const responseId = getSessionView(ctx, sessionId).activities.find((a) => a.id === act.id)!.responses[0].id;
+    return { ctx, sessionId, activityId: act.id, responseId, calls };
+  }
+
+  it("records help before asking, stores the feedback, and never grades", async () => {
+    const { ctx, sessionId, activityId, responseId, calls } = await completedActivity(true);
+    const before = evidenceSnapshot(ctx);
+    const res = await requestResponseFeedback(ctx, sessionId, activityId, responseId);
+    expect(res).toMatchObject({ cached: false, model: "openai:tutor-test" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ objective: expect.any(String), response: "Each flip is an example; the product is the likelihood." });
+    const help = listExposures(ctx.db, sessionId).filter((e) => e.contentRef === `pacer-feedback:${responseId}`);
+    expect(help).toEqual([expect.objectContaining({ kind: "feedback", affectedSkillIds: ["S2"] })]);
+    expect(evidenceSnapshot(ctx)).toEqual(before);
+
+    // Asking again returns the stored feedback without another call or another exposure.
+    expect(await requestResponseFeedback(ctx, sessionId, activityId, responseId)).toMatchObject({ cached: true });
+    expect(calls).toHaveLength(1);
+    expect(listExposures(ctx.db, sessionId).filter((e) => e.contentRef === `pacer-feedback:${responseId}`)).toHaveLength(1);
+    const view = getSessionView(ctx, sessionId).activities.find((a) => a.id === activityId)!;
+    expect(view.responses[0].feedback).toMatchObject({ text: expect.stringMatching(/Good mapping/) });
+  });
+
+  it("is unavailable offline", async () => {
+    const { ctx, sessionId, activityId, responseId } = await completedActivity(false);
+    await expect(requestResponseFeedback(ctx, sessionId, activityId, responseId)).rejects.toMatchObject({ code: "offline_unsupported" });
   });
 });
 

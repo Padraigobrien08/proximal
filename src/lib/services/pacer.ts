@@ -33,13 +33,14 @@ import {
   listActivities,
   listResponses,
   setLearnerConnection,
+  setResponseFeedback,
   updateActivity,
   type ActivityRow,
   type DecisionRow,
   type ProposalRow,
 } from "../db/pacerRepo";
 import { PACER_PROMPT_VERSION } from "../llm/prompts";
-import { OFFLINE_PACER_MESSAGE, ProviderError } from "../llm/types";
+import { OFFLINE_FEEDBACK_MESSAGE, OFFLINE_PACER_MESSAGE, ProviderError } from "../llm/types";
 import {
   freezeActivity,
   routeClassification,
@@ -664,7 +665,14 @@ export function sessionActivitiesView(ctx: AppContext, sessionId: string) {
       teachUnitId: f.teachUnitId ?? null,
       excerpts: f.excerpts ?? [],
       note: f.note,
-      responses: responses.map((r) => ({ stepIndex: r.stepIndex, text: r.text, submittedAt: r.submittedAt, status: r.status })),
+      responses: responses.map((r) => ({
+        id: r.id,
+        stepIndex: r.stepIndex,
+        text: r.text,
+        submittedAt: r.submittedAt,
+        status: r.status,
+        feedback: r.tutorFeedback ? { text: r.tutorFeedback, model: r.feedbackModel } : null,
+      })),
     };
   });
 }
@@ -711,6 +719,56 @@ export function submitActivityResponse(ctx: AppContext, sessionId: string, activ
     updateActivity(ctx.db, activityId, { status, stepIndex: next });
     return { duplicate: false, responseId: r.id, status };
   })();
+}
+
+/**
+ * Formative tutor feedback on one saved learning response. It is help, so a feedback exposure for the skill is
+ * committed in this session before the provider is called: a later answer in the session then counts as supported.
+ * It never creates an attempt, assessment or level change. Feedback is stored, so asking again does not call again.
+ */
+export async function requestResponseFeedback(ctx: AppContext, sessionId: string, activityId: string, responseId: string) {
+  const { a, session } = requireActivity(ctx, sessionId, activityId);
+  if (session.mode !== "learn") throw new AppError("stale_phase", "Feedback on learning responses is only available in learning sessions.");
+  const response = listResponses(ctx.db, activityId).find((r) => r.id === responseId);
+  if (!response) throw notFound("Response");
+  if (response.tutorFeedback) return { feedback: response.tutorFeedback, model: response.feedbackModel, cached: true };
+  if (session.status !== "active") throw new AppError("stale_phase", "This session has ended.");
+  if (!ctx.provider.activityFeedback) throw new AppError("offline_unsupported", OFFLINE_FEEDBACK_MESSAGE);
+
+  const f = a.frozen as FrozenActivity;
+  const step = f.steps?.[response.stepIndex];
+  const skill = getSkill(ctx.db, a.skillId)!;
+  const unit = getUnit(ctx.db, skill.unitId)!;
+  const courseId = getTopic(ctx.db, unit.topicId)!.courseId;
+  const ref = `pacer-feedback:${responseId}`;
+  ctx.db.transaction(() => {
+    if (listExposures(ctx.db, sessionId).some((e) => e.contentRef === ref)) return;
+    insertExposure(ctx.db, { sessionId, kind: "feedback", affectedSkillIds: [skill.id], contentRef: ref, recordedAt: ctx.clock.now() });
+  })();
+
+  const wanted = new Set(unit.sourceRefs.map((r) => r.page));
+  const sourcePages = listSourcesForCourse(ctx.db, courseId)
+    .filter((s) => s.status === "extracted")
+    .flatMap((s) => listSourcePages(ctx.db, s.id))
+    .filter((p) => wanted.has(p.pageNumber))
+    .map((p) => ({ page: p.pageNumber, text: p.text }));
+  let res;
+  try {
+    res = await ctx.provider.activityFeedback({
+      objective: skill.objective,
+      activity: `${f.label}${step ? ` · ${step.title}` : ""}`,
+      prompt: step?.prompt ?? "",
+      expected: step?.expected ?? "",
+      response: response.text,
+      sourcePages,
+    });
+  } catch (err) {
+    if (err instanceof ProviderError) throw new AppError(err.code, err.message, err.retryable);
+    throw err;
+  }
+  const model = res.meta.mode === "live" ? `${res.meta.vendor ?? "live"}:${res.meta.model}` : null;
+  setResponseFeedback(ctx.db, responseId, res.feedback, model);
+  return { feedback: res.feedback, model, cached: false };
 }
 
 /** Continue past teaching (explanation must already be revealed, i.e. its exposure committed) or skip an activity. */

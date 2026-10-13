@@ -349,6 +349,8 @@ export interface ResponseRow {
   text: string;
   status: "submitted";
   tutorFeedback: string | null;
+  /** vendor:model that wrote the feedback. */
+  feedbackModel: string | null;
   submittedAt: number;
 }
 
@@ -361,6 +363,7 @@ interface RawResponse {
   response_text: string;
   status: "submitted";
   tutor_feedback: string | null;
+  feedback_model: string | null;
   submitted_at: number;
 }
 const mapResponse = (r: RawResponse): ResponseRow => ({
@@ -372,16 +375,21 @@ const mapResponse = (r: RawResponse): ResponseRow => ({
   text: r.response_text,
   status: r.status,
   tutorFeedback: r.tutor_feedback,
+  feedbackModel: r.feedback_model,
   submittedAt: r.submitted_at,
 });
 
-export function insertResponse(db: DB, r: Omit<ResponseRow, "id" | "status" | "tutorFeedback">): ResponseRow {
+export function setResponseFeedback(db: DB, responseId: string, feedback: string, model: string | null) {
+  db.prepare("UPDATE pacer_responses SET tutor_feedback = ?, feedback_model = ? WHERE id = ?").run(feedback, model, responseId);
+}
+
+export function insertResponse(db: DB, r: Omit<ResponseRow, "id" | "status" | "tutorFeedback" | "feedbackModel">): ResponseRow {
   const id = newId();
   db.prepare(
     `INSERT INTO pacer_responses (id, activity_id, session_id, submission_key, step_index, response_text, submitted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, r.activityId, r.sessionId, r.submissionKey, r.stepIndex, r.text, r.submittedAt);
-  return { id, ...r, status: "submitted", tutorFeedback: null };
+  return { id, ...r, status: "submitted", tutorFeedback: null, feedbackModel: null };
 }
 
 export function getResponseByKey(db: DB, sessionId: string, key: string): ResponseRow | null {

@@ -30,7 +30,7 @@ export interface SessionActivity {
   teachUnitId: string | null;
   excerpts: { chunkId: string; label: string; page: number | null; text: string; origin: string }[];
   note: string;
-  responses: { stepIndex: number; text: string; submittedAt: number }[];
+  responses: { id: string; stepIndex: number; text: string; submittedAt: number; feedback: { text: string; model: string | null } | null }[];
 }
 
 const primaryBtn =
@@ -273,13 +273,14 @@ export function ActivityCard({
       )}
 
       {done && a.responses.length > 0 && (
-        <details className="text-sm">
+        <details className="text-sm" open={a.responses.some((r) => r.feedback)}>
           <summary className="cursor-pointer text-teal underline underline-offset-2">Your responses</summary>
           <ul className="mt-2 space-y-2">
             {a.responses.map((r) => (
               <li key={r.stepIndex} className="rounded-lg bg-paper p-3">
                 <p className="text-xs font-medium text-muted">{a.steps[r.stepIndex]?.title}</p>
                 <p className="mt-1 whitespace-pre-wrap">{r.text}</p>
+                <ResponseFeedback sessionId={sessionId} activityId={a.id} response={r} onChanged={onChanged} />
               </li>
             ))}
           </ul>
@@ -289,5 +290,58 @@ export function ActivityCard({
       {err && <Notice tone="error">{err}</Notice>}
       <p className="text-xs text-muted">{a.note}</p>
     </section>
+  );
+}
+
+/**
+ * Tutor feedback on one saved response. Asking for it counts as help for this skill in this session (a later answer
+ * here is practice), so the button says so. It is coaching, never a grade.
+ */
+function ResponseFeedback({
+  sessionId,
+  activityId,
+  response: r,
+  onChanged,
+}: {
+  sessionId: string;
+  activityId: string;
+  response: SessionActivity["responses"][number];
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (r.feedback) {
+    return (
+      <div className="mt-2 border-t border-line pt-2" data-testid="response-feedback">
+        <p className="text-xs font-medium text-muted">Tutor feedback · coaching, not a grade</p>
+        <MathText text={r.feedback.text} className="mt-1 block whitespace-pre-wrap" />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        className="text-xs text-teal underline underline-offset-2 disabled:opacity-50"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setErr(null);
+          try {
+            await api(`/api/sessions/${sessionId}/activities/${activityId}/feedback`, { method: "POST", json: { responseId: r.id } });
+            notifyDataChanged();
+            onChanged();
+          } catch (e) {
+            setErr(e instanceof ApiError ? e.message : "Feedback is unavailable right now.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        data-testid="request-feedback"
+      >
+        {busy ? "Asking the tutor…" : "Get tutor feedback (counts as help in this session)"}
+      </button>
+      {err && <p className="mt-1 text-xs text-amber-ink">{err}</p>}
+    </div>
   );
 }

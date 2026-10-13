@@ -17,6 +17,9 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  ACTIVITY_FEEDBACK_PROMPT_VERSION,
+  ACTIVITY_FEEDBACK_SYSTEM,
+  activityFeedbackUserContent,
   TRANSCRIBE_PROMPT_VERSION,
   TRANSCRIBE_SYSTEM,
   transcribeUserText,
@@ -51,6 +54,7 @@ import {
   type PacerClassifyInput,
   type QuestionDraftInput,
   type TranscribeInput,
+  type ActivityFeedbackInput,
   type PageTranscription,
   type UserContent,
 } from "./types";
@@ -243,6 +247,14 @@ export class ClaudeProvider implements LearningProvider {
       transcriptionSchema,
     );
     return { transcription: value, meta: this.meta("curriculum", TRANSCRIBE_PROMPT_VERSION, usage) };
+  }
+
+  /** Coaching on a learning-activity response under the tutor job's model. Plain text; never a grade. */
+  async activityFeedback(input: ActivityFeedbackInput): Promise<{ feedback: string; meta: ProviderMeta }> {
+    const { text, usage } = await this.call({ job: "tutor", system: ACTIVITY_FEEDBACK_SYSTEM, content: activityFeedbackUserContent(input) });
+    const feedback = text.trim().slice(0, MAX_TUTOR_CHARS);
+    if (!feedback) throw new ProviderError("Tutor returned no feedback.", "provider_malformed", true);
+    return { feedback, meta: this.meta("tutor", ACTIVITY_FEEDBACK_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */
