@@ -442,6 +442,10 @@ evaluation are deliberately not in CI: they cost money and need an API key, and 
 
 ## Decisions and known limitations
 
+The end-of-work summary (what changed, which checks ran and their results, what is unverified) is in
+[`docs/proximal/FINISH_REPORT.md`](docs/proximal/FINISH_REPORT.md).
+
+
 - **Next.js 16.4 with `cacheComponents` disabled.** Pages are client screens over the route handlers listed in the brief, so all
   data is read at request time.
 - **Historical replay is computed from a fixture**, not stored in the learner database, so it can never mix with real records.
