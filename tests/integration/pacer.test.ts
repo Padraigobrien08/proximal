@@ -10,8 +10,10 @@ import {
   acceptAllDrafts,
   advanceActivity,
   classifyTopic,
+  requestResponseFeedback,
   reviewClassification,
   revealApproachDetails,
+  setSkillConnection,
   submitActivityResponse,
   topicApproaches,
 } from "../../src/lib/services/pacer";
@@ -269,6 +271,90 @@ describe("P10-P12, P16 learning session activities", () => {
     expect(s2[0]).toMatchObject({ templateId: "none", status: "unavailable", label: "No prepared activity for this approach" });
     expect(view.items.length).toBe(2);
     expect(listDecisions(ctx.db, "S2")[0].reason).toBeNull();
+  });
+});
+
+describe("learner-supplied familiar connection", () => {
+  it("makes an existing decision stale, then lets an analogous choice map and critique the learner's own comparison", async () => {
+    const { ctx } = await setup();
+    reviewClassification(ctx, "S2", { action: "edit", primary: "conceptual", secondary: [], reason: null, replacesDecisionId: null });
+    expect(approach(ctx, LIKELIHOOD, "S2").status).toBe("edited");
+
+    const summary = setSkillConnection(ctx, "S2", "  Like multiplying the odds of independent coin flips.  ");
+    expect(summary.learnerConnection).toBe("Like multiplying the odds of independent coin flips.");
+    // The connection is part of the classification context: the earlier choice must be reviewed again.
+    expect(summary.status).toBe("stale");
+
+    const prior = approach(ctx, LIKELIHOOD, "S2").effective!.decisionId;
+    reviewClassification(ctx, "S2", { action: "edit", primary: "analogous", secondary: [], reason: null, replacesDecisionId: prior });
+    expect(approach(ctx, LIKELIHOOD, "S2").route).toMatchObject({ primaryAvailable: true, primaryLabel: "Map and critique a comparison" });
+    const { sessionId } = startSession(ctx, { topicId: LIKELIHOOD, purpose: "learn" });
+    const s2 = getSessionView(ctx, sessionId).activities.filter((a) => a.skillId === "S2");
+    expect(s2[0]).toMatchObject({ templateId: "map_critique", status: "open" });
+    expect(s2[0].excerpts).toEqual([
+      expect.objectContaining({ chunkId: "learner-connection", origin: "learner", text: "Like multiplying the odds of independent coin flips." }),
+    ]);
+    // Activity completion still never creates evidence.
+    const before = evidenceSnapshot(ctx);
+    submitActivityResponse(ctx, sessionId, s2[0].id, { submissionKey: randomUUID(), stepIndex: 0, text: "Flips map to examples." });
+    expect(evidenceSnapshot(ctx)).toEqual(before);
+  });
+
+  it("clears with empty text and rejects over-long text", async () => {
+    const { ctx } = await setup();
+    setSkillConnection(ctx, "S2", "coin flips");
+    expect(setSkillConnection(ctx, "S2", "   ").learnerConnection).toBeNull();
+    expect(() => setSkillConnection(ctx, "S2", "x".repeat(501))).toThrow(/under 500 characters/);
+  });
+});
+
+describe("tutor feedback on learning responses", () => {
+  async function completedActivity(withFeedback: boolean) {
+    const calls: unknown[] = [];
+    const { ctx } = await setup(
+      withFeedback
+        ? {
+            provider: (db) =>
+              Object.assign(createMockProvider(db), {
+                activityFeedback: async (i: unknown) => {
+                  calls.push(i);
+                  return { feedback: "Good mapping. Add where the comparison breaks down. What does independence assume?", meta: { mode: "live" as const, vendor: "openai" as const, model: "tutor-test", promptVersion: "f", usage: null } };
+                },
+              }),
+          }
+        : {},
+    );
+    setSkillConnection(ctx, "S2", "Like multiplying the odds of independent coin flips.");
+    reviewClassification(ctx, "S2", { action: "edit", primary: "analogous", secondary: [], reason: null, replacesDecisionId: null });
+    const { sessionId } = startSession(ctx, { topicId: LIKELIHOOD, purpose: "learn" });
+    const act = getSessionView(ctx, sessionId).activities.find((a) => a.skillId === "S2")!;
+    submitActivityResponse(ctx, sessionId, act.id, { submissionKey: randomUUID(), stepIndex: 0, text: "Each flip is an example; the product is the likelihood." });
+    const responseId = getSessionView(ctx, sessionId).activities.find((a) => a.id === act.id)!.responses[0].id;
+    return { ctx, sessionId, activityId: act.id, responseId, calls };
+  }
+
+  it("records help before asking, stores the feedback, and never grades", async () => {
+    const { ctx, sessionId, activityId, responseId, calls } = await completedActivity(true);
+    const before = evidenceSnapshot(ctx);
+    const res = await requestResponseFeedback(ctx, sessionId, activityId, responseId);
+    expect(res).toMatchObject({ cached: false, model: "openai:tutor-test" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ objective: expect.any(String), response: "Each flip is an example; the product is the likelihood." });
+    const help = listExposures(ctx.db, sessionId).filter((e) => e.contentRef === `pacer-feedback:${responseId}`);
+    expect(help).toEqual([expect.objectContaining({ kind: "feedback", affectedSkillIds: ["S2"] })]);
+    expect(evidenceSnapshot(ctx)).toEqual(before);
+
+    // Asking again returns the stored feedback without another call or another exposure.
+    expect(await requestResponseFeedback(ctx, sessionId, activityId, responseId)).toMatchObject({ cached: true });
+    expect(calls).toHaveLength(1);
+    expect(listExposures(ctx.db, sessionId).filter((e) => e.contentRef === `pacer-feedback:${responseId}`)).toHaveLength(1);
+    const view = getSessionView(ctx, sessionId).activities.find((a) => a.id === activityId)!;
+    expect(view.responses[0].feedback).toMatchObject({ text: expect.stringMatching(/Good mapping/) });
+  });
+
+  it("is unavailable offline", async () => {
+    const { ctx, sessionId, activityId, responseId } = await completedActivity(false);
+    await expect(requestResponseFeedback(ctx, sessionId, activityId, responseId)).rejects.toMatchObject({ code: "offline_unsupported" });
   });
 });
 

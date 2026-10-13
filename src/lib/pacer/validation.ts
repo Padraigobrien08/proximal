@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   ABSTAIN_REASONS,
+  ABSTAIN_TEXT,
   MEMORY_REQUIREMENTS,
   PACER_LABEL,
   PACER_RATIONALE_STEM,
@@ -150,6 +151,7 @@ const supportSchema = z.discriminatedUnion("from", [
   z.strictObject({ from: z.literal("source"), chunkId: z.string().min(1).max(64), quote: z.string().min(1).max(MAX_QUOTE) }),
   z.strictObject({ from: z.literal("objective"), quote: z.string().min(1).max(MAX_QUOTE) }),
   z.strictObject({ from: z.literal("learner_context"), quote: z.string().min(1).max(MAX_QUOTE) }),
+  z.strictObject({ from: z.literal("learning_goal"), quote: z.string().min(1).max(MAX_QUOTE) }),
 ]);
 
 export const proposalSchema = z.discriminatedUnion("kind", [
@@ -189,7 +191,7 @@ export const wireResultSchema = z.strictObject({
   support: z
     .array(
       z.strictObject({
-        from: z.enum(["source", "objective", "learner_context"]),
+        from: z.enum(["source", "objective", "learner_context", "learning_goal"]),
         chunkId: z.string().max(64).nullable(),
         quote: z.string().max(2000),
       }),
@@ -228,7 +230,7 @@ export const pacerJsonSchema: Record<string, unknown> = {
               additionalProperties: false,
               required: ["from", "chunkId", "quote"],
               properties: {
-                from: { type: "string", enum: ["source", "objective", "learner_context"] },
+                from: { type: "string", enum: ["source", "objective", "learner_context", "learning_goal"] },
                 chunkId: { anyOf: [{ type: "string" }, { type: "null" }] },
                 quote: { type: "string" },
               },
@@ -245,7 +247,11 @@ export const pacerJsonSchema: Record<string, unknown> = {
 
 /** Wire result -> domain proposal candidate (not yet validated). */
 export function fromWire(w: WireResult): unknown {
-  if (w.kind === "abstain") return { kind: "abstain", objectiveId: w.objectiveId, reason: w.abstainReason, message: w.message };
+  if (w.kind === "abstain") {
+    // The wire schema allows a null message; an abstention with a valid reason still stands, with that reason's text.
+    const message = w.message?.trim() || (w.abstainReason ? ABSTAIN_TEXT[w.abstainReason] : w.message);
+    return { kind: "abstain", objectiveId: w.objectiveId, reason: w.abstainReason, message };
+  }
   return {
     kind: "suggestion",
     objectiveId: w.objectiveId,
@@ -297,6 +303,9 @@ export function validateProposal(o: PacerObjectiveInput, candidate: unknown): Va
       else if (!quoteIn(s.quote, c.text)) problems.push(`quote not found in chunk ${s.chunkId}`);
     } else if (s.from === "objective") {
       if (!quoteIn(s.quote, o.objective)) problems.push("quote not found in the objective");
+    } else if (s.from === "learning_goal") {
+      if (!o.learningGoal) problems.push("learning-goal support cited, but no learning goal was supplied");
+      else if (!quoteIn(s.quote, o.learningGoal)) problems.push("quote not found in the learning goal");
     } else if (!o.learnerConnection) {
       problems.push("learner-context support cited, but no learner connection was supplied");
     } else if (!quoteIn(s.quote, o.learnerConnection)) {

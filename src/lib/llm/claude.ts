@@ -17,6 +17,12 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_SYSTEM,
+  materialDraftUserContent,
+  ACTIVITY_FEEDBACK_PROMPT_VERSION,
+  ACTIVITY_FEEDBACK_SYSTEM,
+  activityFeedbackUserContent,
   TRANSCRIBE_PROMPT_VERSION,
   TRANSCRIBE_SYSTEM,
   transcribeUserText,
@@ -27,6 +33,7 @@ import {
 } from "./prompts";
 import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
 import { draftBatchJsonSchema, looseDraftBatchSchema } from "../questions/drafts";
+import { materialDraftJsonSchema } from "../pacer/materialDrafts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import {
   assessorJsonSchema,
@@ -51,6 +58,8 @@ import {
   type PacerClassifyInput,
   type QuestionDraftInput,
   type TranscribeInput,
+  type MaterialDraftInput,
+  type ActivityFeedbackInput,
   type PageTranscription,
   type UserContent,
 } from "./types";
@@ -243,6 +252,26 @@ export class ClaudeProvider implements LearningProvider {
       transcriptionSchema,
     );
     return { transcription: value, meta: this.meta("curriculum", TRANSCRIBE_PROMPT_VERSION, usage) };
+  }
+
+  /** Coaching on a learning-activity response under the tutor job's model. Plain text; never a grade. */
+  async activityFeedback(input: ActivityFeedbackInput): Promise<{ feedback: string; meta: ProviderMeta }> {
+    const { text, usage } = await this.call({ job: "tutor", system: ACTIVITY_FEEDBACK_SYSTEM, content: activityFeedbackUserContent(input) });
+    const feedback = text.trim().slice(0, MAX_TUTOR_CHARS);
+    if (!feedback) throw new ProviderError("Tutor returned no feedback.", "provider_malformed", true);
+    return { feedback, meta: this.meta("tutor", ACTIVITY_FEEDBACK_PROMPT_VERSION, usage) };
+  }
+
+  /** Activity material under the curriculum job's model. Grounding and pairing are checked server-side afterwards. */
+  async draftMaterial(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      MATERIAL_DRAFT_SYSTEM,
+      materialDraftUserContent(input),
+      materialDraftJsonSchema,
+      z.record(z.string(), z.unknown()),
+    );
+    return { draft: value, meta: this.meta("curriculum", MATERIAL_DRAFT_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

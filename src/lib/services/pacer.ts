@@ -22,6 +22,7 @@ import {
   cachedProposal,
   effectiveDecision,
   getActivity,
+  getLearnerConnection,
   getPacerContext,
   getProposal,
   getResponseByKey,
@@ -31,13 +32,15 @@ import {
   latestProposal,
   listActivities,
   listResponses,
+  setLearnerConnection,
+  setResponseFeedback,
   updateActivity,
   type ActivityRow,
   type DecisionRow,
   type ProposalRow,
 } from "../db/pacerRepo";
 import { PACER_PROMPT_VERSION } from "../llm/prompts";
-import { OFFLINE_PACER_MESSAGE, ProviderError } from "../llm/types";
+import { OFFLINE_FEEDBACK_MESSAGE, OFFLINE_PACER_MESSAGE, ProviderError } from "../llm/types";
 import {
   freezeActivity,
   routeClassification,
@@ -110,7 +113,7 @@ export function objectiveInput(ctx: AppContext, skill: TopicSkill, courseId: str
     taskTypes,
     learningGoal: pc?.learningGoal ?? null,
     memoryRequirement: pc?.memoryRequirement ?? "unspecified",
-    learnerConnection: null,
+    learnerConnection: getLearnerConnection(ctx.db, skill.id)?.text ?? null,
     prerequisites: [],
     chunks: chunksFor(ctx, courseId, skill.unit, pc?.auxChunks ?? []),
   };
@@ -247,17 +250,53 @@ export async function classifyTopic(ctx: AppContext, topicId: string, opts: Clas
   };
 }
 
+// ---------------------------------------------------------------- learner connection
+
+export const MAX_CONNECTION_CHARS = 500;
+
+/**
+ * Save the learner's own familiar connection for a skill (or clear it with an empty text). It becomes part of the
+ * classification context, so an existing decision turns stale and is reviewed again, and it can be the comparison
+ * a "Map and critique" activity works on. It is never inferred or generated.
+ */
+export function setSkillConnection(ctx: AppContext, skillId: string, text: string) {
+  const skill = getSkill(ctx.db, skillId);
+  if (!skill) throw notFound("Skill");
+  const unit = getUnit(ctx.db, skill.unitId)!;
+  const topic = getTopic(ctx.db, unit.topicId)!;
+  const course = getCourse(ctx.db, topic.courseId)!;
+  if (course.status !== "approved") throw new AppError("stale_phase", "Approve this draft curriculum first.");
+  const clean = text.trim();
+  if (clean.length > MAX_CONNECTION_CHARS) throw new AppError("validation", `Keep your connection under ${MAX_CONNECTION_CHARS} characters.`);
+  setLearnerConnection(ctx.db, skillId, clean || null, ctx.clock.now());
+  return approachSummary(ctx, { ...skill, unit }, course.id);
+}
+
 // ---------------------------------------------------------------- state and summaries
 
 export type ApproachStatus = "none" | "draft" | "accepted" | "edited" | "dismissed" | "stale" | "abstained" | "error" | "invalid";
 
+/** The learner's own comparison, as an activity chunk: map_critique can then work on it when no source analogy exists. */
+export const LEARNER_CONNECTION_CHUNK = "learner-connection";
+const LEARNER_MAP_PROMPT =
+  "Map your comparison onto the idea: which parts correspond to which, one way it helps, and one place where it breaks down.";
+
+function learnerChunk(ctx: AppContext, skillId: string) {
+  const c = getLearnerConnection(ctx.db, skillId);
+  return c ? { chunkId: LEARNER_CONNECTION_CHUNK, label: "Your connection", page: null, text: c.text, kind: "learner" } : null;
+}
+
 function routingFacts(ctx: AppContext, skill: TopicSkill, hasPracticeQuestion: boolean): RoutingFacts {
   const pc = getPacerContext(ctx.db, skill.id);
+  const material = pc?.material ?? {};
+  const sourceAnalogy = (pc?.auxChunks ?? []).some((c) => c.kind === "analogy") && !!material.analogy;
+  const own = !sourceAnalogy && learnerChunk(ctx, skill.id);
   return {
-    material: pc?.material ?? {},
+    // A source analogy wins; otherwise the learner's own connection can be mapped and critiqued.
+    material: own ? { ...material, analogy: { chunkId: LEARNER_CONNECTION_CHUNK, prompt: LEARNER_MAP_PROMPT } } : material,
     hasCheckedExplanation: !!skill.unit.explanation,
     hasPracticeQuestion,
-    hasApprovedAnalogyChunk: (pc?.auxChunks ?? []).some((c) => c.kind === "analogy"),
+    hasApprovedAnalogyChunk: sourceAnalogy || !!own,
     memoryRequirement: pc?.memoryRequirement ?? "unspecified",
   };
 }
@@ -315,6 +354,7 @@ export function approachSummary(ctx: AppContext, skill: TopicSkill, courseId: st
     unitId: skill.unitId,
     objective: skill.objective,
     label: skill.label ?? skill.objective,
+    learnerConnection: getLearnerConnection(ctx.db, skill.id)?.text ?? null,
     status: st.status,
     effective: st.eff
       ? {
@@ -433,7 +473,11 @@ export function revealApproachDetails(ctx: AppContext, topicId: string, skillIds
                 support: r.support.map((x) =>
                   x.from === "source"
                     ? { from: x.from, quote: x.quote, where: chunkLabel.get(x.chunkId)?.label ?? x.chunkId }
-                    : { from: x.from, quote: x.quote, where: x.from === "objective" ? "The objective" : "Your connection" },
+                    : {
+                        from: x.from,
+                        quote: x.quote,
+                        where: x.from === "objective" ? "The objective" : x.from === "learning_goal" ? "The learning goal" : "Your connection",
+                      },
                 ),
               }
             : { kind: "abstain" as const, reason: r.reason, abstainText: ABSTAIN_TEXT[r.reason], message: r.message }),
@@ -563,7 +607,7 @@ export function freezeSessionActivities(ctx: AppContext, sessionId: string, cour
       freezeActivity(templateId, type, optional, facts.material, {
         unitId: skill.unitId,
         objective: skill.objective,
-        chunks: input.chunks,
+        chunks: [...input.chunks, ...(learnerChunk(ctx, skill.id) ? [learnerChunk(ctx, skill.id)!] : [])],
         memoryRequirement: input.memoryRequirement,
       });
     const created: ActivityRow[] = [];
@@ -621,7 +665,14 @@ export function sessionActivitiesView(ctx: AppContext, sessionId: string) {
       teachUnitId: f.teachUnitId ?? null,
       excerpts: f.excerpts ?? [],
       note: f.note,
-      responses: responses.map((r) => ({ stepIndex: r.stepIndex, text: r.text, submittedAt: r.submittedAt, status: r.status })),
+      responses: responses.map((r) => ({
+        id: r.id,
+        stepIndex: r.stepIndex,
+        text: r.text,
+        submittedAt: r.submittedAt,
+        status: r.status,
+        feedback: r.tutorFeedback ? { text: r.tutorFeedback, model: r.feedbackModel } : null,
+      })),
     };
   });
 }
@@ -668,6 +719,56 @@ export function submitActivityResponse(ctx: AppContext, sessionId: string, activ
     updateActivity(ctx.db, activityId, { status, stepIndex: next });
     return { duplicate: false, responseId: r.id, status };
   })();
+}
+
+/**
+ * Formative tutor feedback on one saved learning response. It is help, so a feedback exposure for the skill is
+ * committed in this session before the provider is called: a later answer in the session then counts as supported.
+ * It never creates an attempt, assessment or level change. Feedback is stored, so asking again does not call again.
+ */
+export async function requestResponseFeedback(ctx: AppContext, sessionId: string, activityId: string, responseId: string) {
+  const { a, session } = requireActivity(ctx, sessionId, activityId);
+  if (session.mode !== "learn") throw new AppError("stale_phase", "Feedback on learning responses is only available in learning sessions.");
+  const response = listResponses(ctx.db, activityId).find((r) => r.id === responseId);
+  if (!response) throw notFound("Response");
+  if (response.tutorFeedback) return { feedback: response.tutorFeedback, model: response.feedbackModel, cached: true };
+  if (session.status !== "active") throw new AppError("stale_phase", "This session has ended.");
+  if (!ctx.provider.activityFeedback) throw new AppError("offline_unsupported", OFFLINE_FEEDBACK_MESSAGE);
+
+  const f = a.frozen as FrozenActivity;
+  const step = f.steps?.[response.stepIndex];
+  const skill = getSkill(ctx.db, a.skillId)!;
+  const unit = getUnit(ctx.db, skill.unitId)!;
+  const courseId = getTopic(ctx.db, unit.topicId)!.courseId;
+  const ref = `pacer-feedback:${responseId}`;
+  ctx.db.transaction(() => {
+    if (listExposures(ctx.db, sessionId).some((e) => e.contentRef === ref)) return;
+    insertExposure(ctx.db, { sessionId, kind: "feedback", affectedSkillIds: [skill.id], contentRef: ref, recordedAt: ctx.clock.now() });
+  })();
+
+  const wanted = new Set(unit.sourceRefs.map((r) => r.page));
+  const sourcePages = listSourcesForCourse(ctx.db, courseId)
+    .filter((s) => s.status === "extracted")
+    .flatMap((s) => listSourcePages(ctx.db, s.id))
+    .filter((p) => wanted.has(p.pageNumber))
+    .map((p) => ({ page: p.pageNumber, text: p.text }));
+  let res;
+  try {
+    res = await ctx.provider.activityFeedback({
+      objective: skill.objective,
+      activity: `${f.label}${step ? ` · ${step.title}` : ""}`,
+      prompt: step?.prompt ?? "",
+      expected: step?.expected ?? "",
+      response: response.text,
+      sourcePages,
+    });
+  } catch (err) {
+    if (err instanceof ProviderError) throw new AppError(err.code, err.message, err.retryable);
+    throw err;
+  }
+  const model = res.meta.mode === "live" ? `${res.meta.vendor ?? "live"}:${res.meta.model}` : null;
+  setResponseFeedback(ctx.db, responseId, res.feedback, model);
+  return { feedback: res.feedback, model, cached: false };
 }
 
 /** Continue past teaching (explanation must already be revealed, i.e. its exposure committed) or skip an activity. */

@@ -39,27 +39,27 @@ import { AppError, notFound } from "./errors";
 /** Recorded as the reviewer of a question approved in the app (single-user local app: the learner is the owner). */
 export const IN_APP_REVIEWER = "You (in-app review)";
 
-interface Owned {
+export interface Owned {
   skill: SkillRow;
   unit: UnitRow;
   courseId: string;
   courseTitle: string;
 }
 
-/** Drafting applies to approved, imported (non-demo) content only. Demo questions are authored fixtures. */
-function ownedSkill(ctx: AppContext, skillId: string): Owned {
+/** Drafting applies to approved, imported (non-demo) content only. Demo content is authored. */
+export function ownedSkill(ctx: AppContext, skillId: string): Owned {
   const skill = getSkill(ctx.db, skillId);
   if (!skill) throw notFound("Skill");
   const unit = getUnit(ctx.db, skill.unitId)!;
   const topic = getTopic(ctx.db, unit.topicId)!;
   const course = getCourse(ctx.db, topic.courseId)!;
-  if (course.isDemo) throw new AppError("validation", "The demo course uses authored questions; drafting is for imported courses.");
+  if (course.isDemo) throw new AppError("validation", "The demo course uses authored content; drafting is for imported courses.");
   if (course.status !== "approved") throw new AppError("stale_phase", "Approve this draft curriculum before drafting questions.");
   if (unit.approvalStatus !== "approved") throw new AppError("stale_phase", "This subtopic has been revised; draft questions for the current version.");
   return { skill, unit, courseId: course.id, courseTitle: course.title };
 }
 
-function unitPages(ctx: AppContext, courseId: string, unit: UnitRow): { page: number; text: string }[] {
+export function unitPages(ctx: AppContext, courseId: string, unit: UnitRow): { page: number; text: string }[] {
   const wanted = new Set(unit.sourceRefs.map((r) => r.page));
   const out: { page: number; text: string }[] = [];
   for (const src of listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted")) {

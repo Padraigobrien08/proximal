@@ -5,6 +5,7 @@ import { logEvent } from "../logger";
 import { assessAttempt } from "../services/assessments";
 import type { AppContext } from "../services/context";
 import { AppError } from "../services/errors";
+import { generateMaterialDraft } from "../services/materialDrafts";
 import { generateQuestionDrafts } from "../services/questionDrafts";
 
 /** Run one claimed job to completion. Never throws: every outcome is recorded on the job row. */
@@ -13,6 +14,8 @@ export async function runJob(ctx: AppContext, job: JobRow): Promise<void> {
     if (job.kind === "assess_attempt") {
       // A provider failure is saved on the attempt itself (provider_error, explicit retry), so the job is done.
       await assessAttempt(ctx, job.refId);
+    } else if (job.kind === "draft_material") {
+      await generateMaterialDraft(ctx, job.refId);
     } else {
       await generateQuestionDrafts(ctx, job.refId);
     }

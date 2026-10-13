@@ -20,6 +20,7 @@ import { ProviderNotice, useContinue } from "../workspace";
 import { Notice, Pill } from "../ui";
 import { LearningApproachPanel, type ApproachSummary } from "../LearningApproach";
 import { QuestionDraftsPanel } from "../QuestionDrafts";
+import { MaterialDraftsPanel } from "../MaterialDrafts";
 
 const TZ = "Europe/London";
 
@@ -329,6 +330,8 @@ export function TopicScreen({ topicId }: { topicId: string }) {
           onChanged={reload}
         />
       )}
+
+      {!data.course.isDemo && data.course.status === "approved" && <MaterialDraftsPanel topicId={topicId} onChanged={reload} />}
 
       <HowLevelsWork />
 

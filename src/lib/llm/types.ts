@@ -83,6 +83,29 @@ export interface PageTranscription {
   legible: boolean;
 }
 
+export interface MaterialDraftInput {
+  courseTitle: string;
+  unitTitle: string;
+  objective: string;
+  /** Approved source pages for the unit. Untrusted data. */
+  sourcePages: { page: number; text: string }[];
+  /** The unit has no teaching explanation yet, so one should be drafted. */
+  explanationWanted: boolean;
+}
+
+export interface ActivityFeedbackInput {
+  objective: string;
+  /** Activity and step, e.g. "Connect and explain · Reconstruct from memory". */
+  activity: string;
+  prompt: string;
+  /** What a good response covers (the step's guidance shown to the learner). */
+  expected: string;
+  /** The learner's response. Untrusted data. */
+  response: string;
+  /** Approved source pages for the unit. Untrusted data. */
+  sourcePages: { page: number; text: string }[];
+}
+
 export type LiveVendor = "anthropic" | "openai";
 
 export interface ProviderMeta {
@@ -117,6 +140,10 @@ export interface LearningProvider {
    */
   draftQuestions?(input: QuestionDraftInput): Promise<{ batch: unknown; meta: ProviderMeta }>;
   /** Transcribe one scanned page image into text (live only). Metered as the curriculum job. */
+  /** Learning-activity material for one skill (unvalidated). Metered as the curriculum job; owner-approved before use. */
+  draftMaterial?(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }>;
+  /** Formative feedback on a learning-activity response (live only, never a grade). Metered as the tutor job. */
+  activityFeedback?(input: ActivityFeedbackInput): Promise<{ feedback: string; meta: ProviderMeta }>;
   transcribePage?(input: TranscribeInput): Promise<{ transcription: PageTranscription; meta: ProviderMeta }>;
 }
 
@@ -138,4 +165,6 @@ export const OFFLINE_PACER_MESSAGE = "Offline mode has authored classifications 
 export const OFFLINE_QUESTION_DRAFT_MESSAGE = "Offline mode can only prepare questions for the authored sample lecture.";
 export const OFFLINE_OCR_MESSAGE =
   "No extractable text was found. This looks like a scanned or image-only PDF; reading page images needs a live provider (LLM_MODE=openai or anthropic).";
+export const OFFLINE_MATERIAL_MESSAGE = "Offline mode can only prepare activities for the authored sample lecture.";
+export const OFFLINE_FEEDBACK_MESSAGE = "Feedback on learning responses needs a live provider (LLM_MODE=openai or anthropic).";
 export const OFFLINE_TUTOR_MESSAGE = "Offline mode has no tutor. Only the checked fixture explanations are available.";

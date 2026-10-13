@@ -219,6 +219,11 @@ export function updateUnit(db: DB, id: string, patch: { title?: string; objectiv
   );
 }
 
+/** Set a unit's checked teaching explanation (owner-approved). */
+export function setUnitExplanation(db: DB, id: string, explanation: string, workedExample: string | null) {
+  db.prepare("UPDATE units SET explanation = ?, worked_example = ? WHERE id = ?").run(explanation, workedExample, id);
+}
+
 export function deleteUnit(db: DB, id: string) {
   db.prepare("DELETE FROM units WHERE id = ?").run(id);
 }

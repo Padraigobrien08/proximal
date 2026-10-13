@@ -17,6 +17,12 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_SYSTEM,
+  materialDraftUserContent,
+  ACTIVITY_FEEDBACK_PROMPT_VERSION,
+  ACTIVITY_FEEDBACK_SYSTEM,
+  activityFeedbackUserContent,
   TRANSCRIBE_PROMPT_VERSION,
   TRANSCRIBE_SYSTEM,
   transcribeUserText,
@@ -27,6 +33,7 @@ import {
 } from "./prompts";
 import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
 import { draftBatchJsonSchema, looseDraftBatchSchema } from "../questions/drafts";
+import { materialDraftJsonSchema } from "../pacer/materialDrafts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import {
   assessorJsonSchema,
@@ -51,6 +58,8 @@ import {
   type PacerClassifyInput,
   type QuestionDraftInput,
   type TranscribeInput,
+  type MaterialDraftInput,
+  type ActivityFeedbackInput,
   type PageTranscription,
   type UserContent,
 } from "./types";
@@ -276,6 +285,30 @@ export class OpenAIProvider implements LearningProvider {
     return { transcription: value, meta: this.meta("curriculum", TRANSCRIBE_PROMPT_VERSION, usage) };
   }
 
+  /** Coaching on a learning-activity response under the tutor job's model. Plain text; never a grade. */
+  async activityFeedback(input: ActivityFeedbackInput): Promise<{ feedback: string; meta: ProviderMeta }> {
+    const { text, usage } = await this.call({
+      job: "tutor",
+      instructions: ACTIVITY_FEEDBACK_SYSTEM,
+      input: [{ role: "user", content: activityFeedbackUserContent(input) }],
+    });
+    const feedback = text.trim().slice(0, MAX_TUTOR_CHARS);
+    if (!feedback) throw new ProviderError("Tutor returned no feedback.", "provider_malformed", true);
+    return { feedback, meta: this.meta("tutor", ACTIVITY_FEEDBACK_PROMPT_VERSION, usage) };
+  }
+
+  /** Activity material under the curriculum job's model. Grounding and pairing are checked server-side afterwards. */
+  async draftMaterial(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      MATERIAL_DRAFT_SYSTEM,
+      materialDraftUserContent(input),
+      { name: "activity_material", schema: materialDraftJsonSchema },
+      z.record(z.string(), z.unknown()),
+    );
+    return { draft: value, meta: this.meta("curriculum", MATERIAL_DRAFT_PROMPT_VERSION, usage) };
+  }
+
   /** Records the model that actually ran this job. */
   private meta(job: LlmJob, promptVersion: string, usage: Usage): ProviderMeta {
     return { mode: "live", vendor: "openai", model: this.jobs[job].model, promptVersion, usage };
@@ -313,7 +346,17 @@ export function mapOpenAIError(err: unknown): ProviderError {
     return new ProviderError(`OpenAI rejected the request: ${err.message.slice(0, 200)}`, "provider_unavailable", false);
   }
   if (err instanceof OpenAI.RateLimitError) {
-    return new ProviderError("OpenAI rate limit or quota reached. Your answer is saved; you can retry.", "provider_unavailable", true);
+    // 429 covers two different situations: a short-term rate limit (wait and retry) and an exhausted account quota or
+    // billing limit (retrying will not help until it is raised).
+    // OpenAI reports exhausted credit as type insufficient_quota (code insufficient_quota or credit_balance_exhausted).
+    if (err.type === "insufficient_quota" || err.code === "insufficient_quota" || err.code === "credit_balance_exhausted") {
+      return new ProviderError(
+        "OpenAI says the account has no credits or quota left. Add credits in OpenAI billing, then retry; your answer is saved.",
+        "provider_unavailable",
+        false,
+      );
+    }
+    return new ProviderError("OpenAI rate limit reached for this model. Wait a minute and retry; your answer is saved.", "provider_unavailable", true);
   }
   if (err instanceof OpenAI.InternalServerError) {
     return new ProviderError("OpenAI is unavailable. Your answer is saved; you can retry.", "provider_unavailable", true);

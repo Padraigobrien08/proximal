@@ -13,6 +13,8 @@ export interface ApproachSummary {
   unitId: string;
   objective: string;
   label: string;
+  /** The learner's own familiar connection, if supplied. */
+  learnerConnection: string | null;
   status: "none" | "draft" | "accepted" | "edited" | "dismissed" | "stale" | "abstained" | "error" | "invalid";
   effective: {
     decisionId: string;
@@ -239,6 +241,17 @@ export function LearningApproachPanel({
 
               {d && <DetailBlock d={d} />}
 
+              <ConnectionEditor
+                skillId={s.skillId}
+                saved={s.learnerConnection}
+                disabled={busy !== null}
+                onSaved={() => {
+                  setDetails(null);
+                  notifyDataChanged();
+                  onChanged();
+                }}
+              />
+
               {editing === s.skillId ? (
                 <EditForm
                   initial={s.draft?.primary ? { primary: s.draft.primary, secondary: s.draft.secondary ?? [] } : s.effective?.primary ? { primary: s.effective.primary, secondary: s.effective.secondary } : null}
@@ -404,6 +417,95 @@ function EditForm({
           {busy ? "Saving…" : "Use this approach"}
         </button>
         <button type="button" className={btn} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The learner's own familiar connection ("this reminds me of ..."). Never inferred: only what the learner writes. It
+ * feeds the next suggestion and, when the lecture has no comparison of its own, a "Map and critique" activity.
+ */
+function ConnectionEditor({ skillId, saved, disabled, onSaved }: { skillId: string; saved: string | null; disabled: boolean; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(saved ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save(value: string) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(`/api/skills/${skillId}/connection`, { method: "POST", json: { text: value } });
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not save your connection.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <p className="mt-2 text-xs text-muted">
+        {saved ? (
+          <>
+            Your connection: <span className="text-ink">“{saved}”</span>{" "}
+          </>
+        ) : null}
+        <button
+          type="button"
+          className="text-teal underline underline-offset-2"
+          disabled={disabled}
+          onClick={() => {
+            setText(saved ?? "");
+            setOpen(true);
+          }}
+          data-testid={`connection-${skillId}`}
+        >
+          {saved ? "Change" : "Add something this reminds you of"}
+        </button>
+      </p>
+    );
+  }
+  return (
+    <form
+      className="mt-2 space-y-2 rounded-lg border border-line p-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(text);
+      }}
+    >
+      <label className="block">
+        <span className="font-medium">Something this reminds you of (optional)</span>
+        <span className="block text-xs text-muted">
+          A familiar idea, from another course or everyday life. It shapes the next suggestion, and you can then map and critique it as a
+          learning activity. Changing it means saved approaches are reviewed again.
+        </span>
+        <textarea
+          className="mt-1 w-full rounded-[7px] border border-line-strong bg-card px-3 py-2 text-sm"
+          rows={2}
+          maxLength={500}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          aria-label="Something this reminds you of"
+          data-testid={`connection-text-${skillId}`}
+        />
+      </label>
+      {err && <Notice tone="error">{err}</Notice>}
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={primaryBtn} disabled={busy} data-testid={`connection-save-${skillId}`}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {saved && (
+          <button type="button" className={btn} disabled={busy} onClick={() => save("")}>
+            Remove
+          </button>
+        )}
+        <button type="button" className={btn} disabled={busy} onClick={() => setOpen(false)}>
           Cancel
         </button>
       </div>

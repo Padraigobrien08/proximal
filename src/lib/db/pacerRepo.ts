@@ -60,6 +60,27 @@ export function upsertPacerContext(db: DB, c: PacerContextRow) {
   ).run(c.skillId, c.contextVersion, c.learningGoal, c.memoryRequirement, JSON.stringify(c.auxChunks), JSON.stringify(c.material), c.updatedAt);
 }
 
+// ---------------------------------------------------------------- learner connections
+
+export function getLearnerConnection(db: DB, skillId: string): { text: string; updatedAt: number } | null {
+  const r = db.prepare("SELECT connection_text, updated_at FROM pacer_learner_connections WHERE skill_id = ?").get(skillId) as
+    | { connection_text: string; updated_at: number }
+    | undefined;
+  return r ? { text: r.connection_text, updatedAt: r.updated_at } : null;
+}
+
+/** Save or (with null) clear the learner's familiar connection for a skill. */
+export function setLearnerConnection(db: DB, skillId: string, text: string | null, at: number) {
+  if (text === null) {
+    db.prepare("DELETE FROM pacer_learner_connections WHERE skill_id = ?").run(skillId);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO pacer_learner_connections (skill_id, connection_text, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (skill_id) DO UPDATE SET connection_text = excluded.connection_text, updated_at = excluded.updated_at`,
+  ).run(skillId, text, at);
+}
+
 // ---------------------------------------------------------------- proposals
 
 export type ProposalKind = "suggestion" | "abstain" | "invalid" | "error";
@@ -328,6 +349,8 @@ export interface ResponseRow {
   text: string;
   status: "submitted";
   tutorFeedback: string | null;
+  /** vendor:model that wrote the feedback. */
+  feedbackModel: string | null;
   submittedAt: number;
 }
 
@@ -340,6 +363,7 @@ interface RawResponse {
   response_text: string;
   status: "submitted";
   tutor_feedback: string | null;
+  feedback_model: string | null;
   submitted_at: number;
 }
 const mapResponse = (r: RawResponse): ResponseRow => ({
@@ -351,16 +375,21 @@ const mapResponse = (r: RawResponse): ResponseRow => ({
   text: r.response_text,
   status: r.status,
   tutorFeedback: r.tutor_feedback,
+  feedbackModel: r.feedback_model,
   submittedAt: r.submitted_at,
 });
 
-export function insertResponse(db: DB, r: Omit<ResponseRow, "id" | "status" | "tutorFeedback">): ResponseRow {
+export function setResponseFeedback(db: DB, responseId: string, feedback: string, model: string | null) {
+  db.prepare("UPDATE pacer_responses SET tutor_feedback = ?, feedback_model = ? WHERE id = ?").run(feedback, model, responseId);
+}
+
+export function insertResponse(db: DB, r: Omit<ResponseRow, "id" | "status" | "tutorFeedback" | "feedbackModel">): ResponseRow {
   const id = newId();
   db.prepare(
     `INSERT INTO pacer_responses (id, activity_id, session_id, submission_key, step_index, response_text, submitted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, r.activityId, r.sessionId, r.submissionKey, r.stepIndex, r.text, r.submittedAt);
-  return { id, ...r, status: "submitted", tutorFeedback: null };
+  return { id, ...r, status: "submitted", tutorFeedback: null, feedbackModel: null };
 }
 
 export function getResponseByKey(db: DB, sessionId: string, key: string): ResponseRow | null {
@@ -370,4 +399,75 @@ export function getResponseByKey(db: DB, sessionId: string, key: string): Respon
 
 export function listResponses(db: DB, activityId: string): ResponseRow[] {
   return (db.prepare("SELECT * FROM pacer_responses WHERE activity_id = ? ORDER BY step_index").all(activityId) as RawResponse[]).map(mapResponse);
+}
+
+// ---------------------------------------------------------------- material drafts
+
+export type MaterialDraftStatus = "draft" | "approved" | "rejected" | "invalid";
+
+export interface MaterialDraftRow {
+  id: string;
+  skillId: string;
+  skillVersion: number;
+  status: MaterialDraftStatus;
+  /** MaterialDraft when valid; the raw candidate when invalid. */
+  draft: unknown;
+  problems: string[];
+  providerMode: "mock" | "live";
+  providerModel: string | null;
+  promptVersion: string;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+interface RawMaterialDraft {
+  id: string;
+  skill_id: string;
+  skill_version: number;
+  status: MaterialDraftStatus;
+  draft_json: string;
+  problems_json: string;
+  provider_mode: "mock" | "live";
+  provider_model: string | null;
+  prompt_version: string;
+  created_at: number;
+  decided_at: number | null;
+}
+
+const mapMaterialDraft = (r: RawMaterialDraft): MaterialDraftRow => ({
+  id: r.id,
+  skillId: r.skill_id,
+  skillVersion: r.skill_version,
+  status: r.status,
+  draft: JSON.parse(r.draft_json),
+  problems: JSON.parse(r.problems_json),
+  providerMode: r.provider_mode,
+  providerModel: r.provider_model,
+  promptVersion: r.prompt_version,
+  createdAt: r.created_at,
+  decidedAt: r.decided_at,
+});
+
+export function insertMaterialDraft(db: DB, d: Omit<MaterialDraftRow, "id" | "decidedAt">): string {
+  const id = newId();
+  db.prepare(
+    `INSERT INTO pacer_material_drafts (id, skill_id, skill_version, status, draft_json, problems_json, provider_mode, provider_model,
+       prompt_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, d.skillId, d.skillVersion, d.status, JSON.stringify(d.draft), JSON.stringify(d.problems), d.providerMode, d.providerModel, d.promptVersion, d.createdAt);
+  return id;
+}
+
+export function getMaterialDraft(db: DB, id: string): MaterialDraftRow | null {
+  const r = db.prepare("SELECT * FROM pacer_material_drafts WHERE id = ?").get(id) as RawMaterialDraft | undefined;
+  return r ? mapMaterialDraft(r) : null;
+}
+
+export function listMaterialDraftsForSkill(db: DB, skillId: string): MaterialDraftRow[] {
+  return (db.prepare("SELECT * FROM pacer_material_drafts WHERE skill_id = ? ORDER BY created_at, rowid").all(skillId) as RawMaterialDraft[]).map(mapMaterialDraft);
+}
+
+/** Compare-and-set decision: only a row still in `from` changes. */
+export function decideMaterialDraft(db: DB, id: string, from: MaterialDraftStatus[], to: "approved" | "rejected", at: number): boolean {
+  const placeholders = from.map(() => "?").join(", ");
+  return db.prepare(`UPDATE pacer_material_drafts SET status = ?, decided_at = ? WHERE id = ? AND status IN (${placeholders})`).run(to, at, id, ...from).changes === 1;
 }
