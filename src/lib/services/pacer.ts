@@ -22,6 +22,7 @@ import {
   cachedProposal,
   effectiveDecision,
   getActivity,
+  getLearnerConnection,
   getPacerContext,
   getProposal,
   getResponseByKey,
@@ -31,6 +32,7 @@ import {
   latestProposal,
   listActivities,
   listResponses,
+  setLearnerConnection,
   updateActivity,
   type ActivityRow,
   type DecisionRow,
@@ -110,7 +112,7 @@ export function objectiveInput(ctx: AppContext, skill: TopicSkill, courseId: str
     taskTypes,
     learningGoal: pc?.learningGoal ?? null,
     memoryRequirement: pc?.memoryRequirement ?? "unspecified",
-    learnerConnection: null,
+    learnerConnection: getLearnerConnection(ctx.db, skill.id)?.text ?? null,
     prerequisites: [],
     chunks: chunksFor(ctx, courseId, skill.unit, pc?.auxChunks ?? []),
   };
@@ -247,17 +249,53 @@ export async function classifyTopic(ctx: AppContext, topicId: string, opts: Clas
   };
 }
 
+// ---------------------------------------------------------------- learner connection
+
+export const MAX_CONNECTION_CHARS = 500;
+
+/**
+ * Save the learner's own familiar connection for a skill (or clear it with an empty text). It becomes part of the
+ * classification context, so an existing decision turns stale and is reviewed again, and it can be the comparison
+ * a "Map and critique" activity works on. It is never inferred or generated.
+ */
+export function setSkillConnection(ctx: AppContext, skillId: string, text: string) {
+  const skill = getSkill(ctx.db, skillId);
+  if (!skill) throw notFound("Skill");
+  const unit = getUnit(ctx.db, skill.unitId)!;
+  const topic = getTopic(ctx.db, unit.topicId)!;
+  const course = getCourse(ctx.db, topic.courseId)!;
+  if (course.status !== "approved") throw new AppError("stale_phase", "Approve this draft curriculum first.");
+  const clean = text.trim();
+  if (clean.length > MAX_CONNECTION_CHARS) throw new AppError("validation", `Keep your connection under ${MAX_CONNECTION_CHARS} characters.`);
+  setLearnerConnection(ctx.db, skillId, clean || null, ctx.clock.now());
+  return approachSummary(ctx, { ...skill, unit }, course.id);
+}
+
 // ---------------------------------------------------------------- state and summaries
 
 export type ApproachStatus = "none" | "draft" | "accepted" | "edited" | "dismissed" | "stale" | "abstained" | "error" | "invalid";
 
+/** The learner's own comparison, as an activity chunk: map_critique can then work on it when no source analogy exists. */
+export const LEARNER_CONNECTION_CHUNK = "learner-connection";
+const LEARNER_MAP_PROMPT =
+  "Map your comparison onto the idea: which parts correspond to which, one way it helps, and one place where it breaks down.";
+
+function learnerChunk(ctx: AppContext, skillId: string) {
+  const c = getLearnerConnection(ctx.db, skillId);
+  return c ? { chunkId: LEARNER_CONNECTION_CHUNK, label: "Your connection", page: null, text: c.text, kind: "learner" } : null;
+}
+
 function routingFacts(ctx: AppContext, skill: TopicSkill, hasPracticeQuestion: boolean): RoutingFacts {
   const pc = getPacerContext(ctx.db, skill.id);
+  const material = pc?.material ?? {};
+  const sourceAnalogy = (pc?.auxChunks ?? []).some((c) => c.kind === "analogy") && !!material.analogy;
+  const own = !sourceAnalogy && learnerChunk(ctx, skill.id);
   return {
-    material: pc?.material ?? {},
+    // A source analogy wins; otherwise the learner's own connection can be mapped and critiqued.
+    material: own ? { ...material, analogy: { chunkId: LEARNER_CONNECTION_CHUNK, prompt: LEARNER_MAP_PROMPT } } : material,
     hasCheckedExplanation: !!skill.unit.explanation,
     hasPracticeQuestion,
-    hasApprovedAnalogyChunk: (pc?.auxChunks ?? []).some((c) => c.kind === "analogy"),
+    hasApprovedAnalogyChunk: sourceAnalogy || !!own,
     memoryRequirement: pc?.memoryRequirement ?? "unspecified",
   };
 }
@@ -315,6 +353,7 @@ export function approachSummary(ctx: AppContext, skill: TopicSkill, courseId: st
     unitId: skill.unitId,
     objective: skill.objective,
     label: skill.label ?? skill.objective,
+    learnerConnection: getLearnerConnection(ctx.db, skill.id)?.text ?? null,
     status: st.status,
     effective: st.eff
       ? {
@@ -563,7 +602,7 @@ export function freezeSessionActivities(ctx: AppContext, sessionId: string, cour
       freezeActivity(templateId, type, optional, facts.material, {
         unitId: skill.unitId,
         objective: skill.objective,
-        chunks: input.chunks,
+        chunks: [...input.chunks, ...(learnerChunk(ctx, skill.id) ? [learnerChunk(ctx, skill.id)!] : [])],
         memoryRequirement: input.memoryRequirement,
       });
     const created: ActivityRow[] = [];

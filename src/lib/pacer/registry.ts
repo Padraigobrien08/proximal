@@ -202,7 +202,7 @@ export function freezeActivity(
       const c = chunk(m.analogy!.chunkId);
       return {
         ...base,
-        excerpts: c ? [{ chunkId: c.chunkId, label: c.label, page: c.page, text: c.text, origin: "authored_context" }] : [],
+        excerpts: c ? [{ chunkId: c.chunkId, label: c.label, page: c.page, text: c.text, origin: c.kind === "learner" ? "learner" : "authored_context" }] : [],
         steps: [
           {
             key: "respond",

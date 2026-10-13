@@ -60,6 +60,27 @@ export function upsertPacerContext(db: DB, c: PacerContextRow) {
   ).run(c.skillId, c.contextVersion, c.learningGoal, c.memoryRequirement, JSON.stringify(c.auxChunks), JSON.stringify(c.material), c.updatedAt);
 }
 
+// ---------------------------------------------------------------- learner connections
+
+export function getLearnerConnection(db: DB, skillId: string): { text: string; updatedAt: number } | null {
+  const r = db.prepare("SELECT connection_text, updated_at FROM pacer_learner_connections WHERE skill_id = ?").get(skillId) as
+    | { connection_text: string; updated_at: number }
+    | undefined;
+  return r ? { text: r.connection_text, updatedAt: r.updated_at } : null;
+}
+
+/** Save or (with null) clear the learner's familiar connection for a skill. */
+export function setLearnerConnection(db: DB, skillId: string, text: string | null, at: number) {
+  if (text === null) {
+    db.prepare("DELETE FROM pacer_learner_connections WHERE skill_id = ?").run(skillId);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO pacer_learner_connections (skill_id, connection_text, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (skill_id) DO UPDATE SET connection_text = excluded.connection_text, updated_at = excluded.updated_at`,
+  ).run(skillId, text, at);
+}
+
 // ---------------------------------------------------------------- proposals
 
 export type ProposalKind = "suggestion" | "abstain" | "invalid" | "error";
