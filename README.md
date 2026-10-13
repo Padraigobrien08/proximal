@@ -62,7 +62,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
 | `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, its learner records and its uploaded files. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
-| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]` | One real call per provider job (17 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
+| `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions,material,feedback]` | One real call per provider job (19 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7] [--prices f.json] [--write-prices]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens, average latency and estimated cost (from your price list), plus totals and rolling 24 h usage against the caps. `--write-prices` creates the price-list template. |
 | `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
 
@@ -300,9 +300,9 @@ It is not a learning style, level or mastery measure, and no learning gain is cl
   running out of credit. The labels are provisional and these are development cases, not a benchmark.
 
 Known limitations: no variant question after guided practice (fresh families are kept for checks); activity drafts cannot be edited
-in place (reject and draft again); learning sessions still need a practice question for a subtopic's activities to appear; tutor
-feedback and live activity drafting were tested with stubbed providers only. The OpenAI account ran out of credit before they could
-be run live.
+in place (reject and draft again); learning sessions still need a practice question for a subtopic's activities to appear. Live
+activity drafting and tutor feedback have passed the smoke test only (`smoke:live` jobs `material` and `feedback`, 2026-10-13):
+the drafted material passed every grounding check, and the feedback contained no grade. That is not a quality evaluation.
 
 ## Sample content
 
@@ -455,7 +455,7 @@ evaluation are deliberately not in CI: they cost money and need an API key, and 
   "Answer saved" at once; the results screen shows "grading…" and polls until the grades land. Learning answers and corrections are
   still graded within the request, because the learner is waiting for that feedback. A provider failure leaves the attempt saved as
   `provider_error` with an explicit retry; it is never retried automatically.
-- **Live verification is a smoke test, not an evaluation.** `npm run smoke:live -- --yes` passed 6/6 on 2026-10-12 against OpenAI
+- **Live verification is a smoke test, not an evaluation.** `npm run smoke:live -- --yes` passed 11/11 on 2026-10-13 against OpenAI
   (`gpt-5.5-2026-04-23` for assessment and curriculum, `gpt-5.4-mini-2026-03-17` for the tutor). The Claude adapter is still tested
   with stubbed SDK clients only. Run the smoke test after changing a provider or model.
 - **Test fault injection:** `PROXIMAL_FAULT_MOCK_ASSESS_FAILURES=N` makes the first N *offline* assessments in a server process
