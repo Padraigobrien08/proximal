@@ -22,7 +22,7 @@ interface CourseData {
     originalName: string;
     status: string;
     pageCount: number | null;
-    pages: { page: number; lowTextWarning: boolean; charCount: number; text: string | null }[];
+    pages: { page: number; lowTextWarning: boolean; transcribedBy: string | null; charCount: number; text: string | null }[];
   }[];
   mastery: {
     rollup: LevelRollup;
@@ -379,11 +379,19 @@ export function CourseScreen({ courseId }: { courseId: string }) {
                 not prove other pages extracted correctly; check the text below.
               </Notice>
             )}
+            {s.pages.some((p) => p.transcribedBy) && (
+              <Notice tone="warn">
+                Page(s) {s.pages.filter((p) => p.transcribedBy).map((p) => p.page).join(", ")} had no text layer and were read from their images
+                by {[...new Set(s.pages.map((p) => p.transcribedBy).filter(Boolean))].join(", ")}. Transcriptions can misread symbols and
+                equations; check the text below before approving.
+              </Notice>
+            )}
             {draft &&
               s.pages.map((p) => (
                 <details key={p.page} className="mt-2 rounded-md border border-line p-2">
                   <summary className="text-xs">
-                    PDF page {p.page} · {p.charCount} characters {p.lowTextWarning ? "· low-text warning" : ""}
+                    PDF page {p.page} · {p.charCount} characters {p.transcribedBy ? "· read from image by AI" : ""}
+                    {p.lowTextWarning ? " · low-text warning" : ""}
                   </summary>
                   <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-muted">{p.text}</pre>
                 </details>

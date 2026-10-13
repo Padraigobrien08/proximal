@@ -106,7 +106,7 @@ describe("T18: PDF import", () => {
   it("empty/scanned, corrupt, non-PDF, encrypted-like and oversized files produce actionable errors", async () => {
     const { ctx, dir } = await setup();
     const scanned = await pdfWithPages(["", ""]);
-    await expect(importPdf(ctx, dir, { name: "scan.pdf", bytes: scanned })).rejects.toThrow(/scanned or image-only/);
+    await expect(importPdf(ctx, dir, { name: "scan.pdf", bytes: scanned })).rejects.toThrow(/scanned or image-only PDF; reading page images needs a live provider/);
     await expect(importPdf(ctx, dir, { name: "bad.pdf", bytes: new TextEncoder().encode("%PDF-1.7\nthis is not really a pdf") })).rejects.toThrow(
       /could not be parsed/,
     );

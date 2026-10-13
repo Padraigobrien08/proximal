@@ -17,6 +17,9 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  TRANSCRIBE_PROMPT_VERSION,
+  TRANSCRIBE_SYSTEM,
+  transcribeUserText,
   QUESTION_DRAFT_SYSTEM,
   questionDraftUserContent,
   PACER_SYSTEM,
@@ -32,6 +35,8 @@ import {
   curriculumDraftSchema,
   curriculumJsonSchema,
   looseAssessorOutputSchema,
+  transcriptionJsonSchema,
+  transcriptionSchema,
 } from "./schemas";
 import {
   ProviderError,
@@ -45,6 +50,9 @@ import {
   type ChatReply,
   type PacerClassifyInput,
   type QuestionDraftInput,
+  type TranscribeInput,
+  type PageTranscription,
+  type UserContent,
 } from "./types";
 
 export const CLAUDE_TIMEOUT_MS = 60_000;
@@ -65,6 +73,15 @@ export interface ClaudeProviderOptions {
 }
 
 type Usage = ProviderMeta["usage"];
+
+function toClaudeContent(content: UserContent): Anthropic.MessageParam["content"] {
+  if (typeof content === "string") return content;
+  return content.map((c) =>
+    c.type === "text"
+      ? { type: "text" as const, text: c.text }
+      : { type: "image" as const, source: { type: "base64" as const, media_type: c.mediaType, data: c.base64 } },
+  );
+}
 
 export class ClaudeProvider implements LearningProvider {
   readonly mode = "live" as const;
@@ -92,7 +109,7 @@ export class ClaudeProvider implements LearningProvider {
   private async call(params: {
     job: LlmJob;
     system: string;
-    content: string;
+    content: UserContent;
     schema?: Record<string, unknown>;
     priorTurns?: Anthropic.MessageParam[];
   }): Promise<{ text: string; usage: Usage }> {
@@ -108,7 +125,7 @@ export class ClaudeProvider implements LearningProvider {
           model: cfg.model,
           max_tokens: cfg.maxOutputTokens,
           system: params.system,
-          messages: [...(params.priorTurns ?? []), { role: "user", content: params.content }],
+          messages: [...(params.priorTurns ?? []), { role: "user", content: toClaudeContent(params.content) }],
           ...(Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}),
         },
         { timeout: cfg.timeoutMs },
@@ -135,7 +152,7 @@ export class ClaudeProvider implements LearningProvider {
   private async structured<T>(
     job: LlmJob,
     system: string,
-    content: string,
+    content: UserContent,
     jsonSchema: Record<string, unknown>,
     zodSchema: z.ZodType<T>,
   ): Promise<{ value: T; usage: Usage }> {
@@ -148,7 +165,7 @@ export class ClaudeProvider implements LearningProvider {
       content: `Your previous output did not match the required schema: ${parsed.error.slice(0, 500)}\nReturn the corrected structured output only.`,
       schema: jsonSchema,
       priorTurns: [
-        { role: "user", content },
+        { role: "user", content: toClaudeContent(content) },
         { role: "assistant", content: first.text.slice(0, 8000) || "{}" },
       ],
     });
@@ -211,6 +228,21 @@ export class ClaudeProvider implements LearningProvider {
       looseDraftBatchSchema,
     );
     return { batch: value, meta: this.meta("curriculum", QUESTION_DRAFT_PROMPT_VERSION, usage) };
+  }
+
+  /** Scanned-page transcription under the curriculum job's model. The image goes in the user turn as data. */
+  async transcribePage(input: TranscribeInput): Promise<{ transcription: PageTranscription; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      TRANSCRIBE_SYSTEM,
+      [
+        { type: "image", mediaType: input.image.mediaType, base64: input.image.base64 },
+        { type: "text", text: transcribeUserText(input.page) },
+      ],
+      transcriptionJsonSchema,
+      transcriptionSchema,
+    );
+    return { transcription: value, meta: this.meta("curriculum", TRANSCRIBE_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

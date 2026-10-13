@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_CURRICULUM_PARTS, mergeCurriculumDrafts, planCurriculumParts } from "../../src/lib/content/chunking";
+import { validateCurriculumDraft } from "../../src/lib/llm/schemas";
 import type { CurriculumDraft } from "../../src/lib/llm/types";
 
 const pages = (sizes: number[]) => sizes.map((n, i) => ({ page: i + 1, text: "x".repeat(n) }));
@@ -50,5 +51,18 @@ describe("mergeCurriculumDrafts", () => {
     expect(m.suggestions).toEqual(["Read Bishop 4.3", "Try logits"]);
     // Inputs are not mutated.
     expect(a.topics[0].units).toHaveLength(1);
+  });
+});
+
+describe("validateCurriculumDraft unit counts", () => {
+  const draft = (n: number): CurriculumDraft => ({
+    topics: [{ title: "T", units: Array.from({ length: n }, (_, i) => ({ title: `U${i}`, objective: "o", sourcePages: [1], skills: [{ objective: "s" }] })) }],
+    suggestions: [],
+  });
+  it("asks a whole document for 3-8 units, but no more than its page count below 3", () => {
+    expect(validateCurriculumDraft(draft(2), { pages: [1, 2, 3] })).toEqual(["expected 3-8 units, got 2"]);
+    expect(validateCurriculumDraft(draft(2), { pages: [1, 2] })).toEqual([]);
+    expect(validateCurriculumDraft(draft(1), { pages: [1] })).toEqual([]);
+    expect(validateCurriculumDraft(draft(1), { pages: [1, 2, 3], part: true })).toEqual([]);
   });
 });

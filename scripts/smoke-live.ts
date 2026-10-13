@@ -1,7 +1,7 @@
 // Live smoke test: one real call per provider job (assessment, tutor, chat, curriculum, PACER, question drafts), run
 // through the same services and validators the app uses. Learner data is never touched: the demo is seeded into a
 // temporary database. Calls are metered into the app database (npm run usage) and respect the daily caps.
-// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,pacer,questions]
+// Usage: npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions]
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,15 +17,18 @@ import { askChat } from "../src/lib/services/chat";
 import type { AppContext } from "../src/lib/services/context";
 import { draftCurriculumInParts, importPdf } from "../src/lib/services/imports";
 import { planCurriculumParts } from "../src/lib/content/chunking";
+import { createCanvas } from "@napi-rs/canvas";
+import { PDFDocument } from "pdf-lib";
+import { renderPagesAsJpeg } from "../src/lib/pdf/render";
 import { classifyTopic } from "../src/lib/services/pacer";
 import { checkDraftBatch } from "../src/lib/questions/drafts";
 import { seedDemo } from "../src/lib/services/seed";
 import { arg, dataDir, flag, loadDotEnv } from "./_lib";
 
-const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "pacer", "questions"] as const;
+const JOBS = ["assess", "tutor", "chat", "curriculum", "parts", "ocr", "pacer", "questions"] as const;
 type Job = (typeof JOBS)[number];
 // Paid calls per job, so the confirmation message is exact.
-const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, pacer: 1, questions: 1 };
+const CALLS: Record<Job, number> = { assess: 2, tutor: 1, chat: 1, curriculum: 1, parts: 3, ocr: 1, pacer: 1, questions: 1 };
 
 loadDotEnv();
 const only = arg("only")?.split(",").map((s) => s.trim()) as Job[] | undefined;
@@ -158,6 +161,30 @@ if (jobs.includes("parts")) {
       ok: plan.parts.length === 3 && units.length >= 3,
       detail: `${plan.parts.length} parts -> ${draft.topics.length} topics, ${units.length} units, pages cited ${[...cited].sort((a, b) => a - b).join(",")}`,
     };
+  });
+}
+
+// A scanned page (an image only, no text layer) with a formula, rendered the way import renders it and transcribed.
+if (jobs.includes("ocr")) {
+  await check("scanned page", async () => {
+    const c = createCanvas(1240, 1754);
+    const g = c.getContext("2d");
+    g.fillStyle = "white";
+    g.fillRect(0, 0, 1240, 1754);
+    g.fillStyle = "black";
+    g.font = "bold 44px serif";
+    g.fillText("Binary cross-entropy", 100, 160);
+    g.font = "34px serif";
+    g.fillText("For a label y and predicted probability p:", 100, 260);
+    g.fillText("BCE(y, p) = -[ y log p + (1 - y) log(1 - p) ]", 140, 340);
+    g.fillText("For y = 1 and p = 0.8 the loss is about 0.223.", 100, 440);
+    const doc = await PDFDocument.create();
+    doc.addPage([595, 842]).drawImage(await doc.embedPng(c.toBuffer("image/png")), { x: 0, y: 0, width: 595, height: 842 });
+    const [page] = await renderPagesAsJpeg(await doc.save(), [1]);
+    const { transcription, meta } = await provider.transcribePage({ page: 1, image: { mediaType: "image/jpeg", base64: page.jpeg.toString("base64") } });
+    const t = transcription.text.toLowerCase();
+    const ok = transcription.legible && t.includes("cross-entropy") && t.includes("0.223") && t.includes("log");
+    return { ok, detail: `${transcription.text.length} chars, legible=${transcription.legible} (${meta.model}): ${JSON.stringify(transcription.text.slice(0, 160))}` };
   });
 }
 
