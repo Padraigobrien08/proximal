@@ -8,6 +8,7 @@ import {
   OFFLINE_PACER_MESSAGE,
   OFFLINE_CURRICULUM_MESSAGE,
   OFFLINE_QUESTION_DRAFT_MESSAGE,
+  OFFLINE_MATERIAL_MESSAGE,
   OFFLINE_TUTOR_MESSAGE,
   ProviderError,
   type AssessmentInput,
@@ -16,12 +17,14 @@ import {
   type LearningProvider,
   type PacerClassifyInput,
   type QuestionDraftInput,
+  type MaterialDraftInput,
   type ProviderMeta,
 } from "./types";
 
 export const MOCK_PROMPT_VERSION = "mock-fixture-v1";
 export const MOCK_PACER_PROMPT_VERSION = "pacer-offline-fixture-v1";
 export const MOCK_DRAFT_PROMPT_VERSION = "question-draft-offline-fixture-v1";
+export const MOCK_MATERIAL_PROMPT_VERSION = "activity-material-offline-fixture-v1";
 
 export interface MockProviderDeps {
   /** Authored example answers for a question id. */
@@ -30,6 +33,8 @@ export interface MockProviderDeps {
   sampleLecture: { sha256: string; draft: CurriculumDraft } | null;
   /** Authored PACER annotation for an exactly matching classification context, else null. */
   pacerAnnotation?(contextHash: string): Record<string, unknown> | null;
+  /** Authored activity material, in draft form, for an exactly matching sample-curriculum objective, else null. */
+  authoredMaterial?(objective: string, explanationWanted: boolean): unknown | null;
   /** Authored questions, in draft form, for a skill objective that exactly matches the sample curriculum, else null. */
   authoredDrafts?(objective: string): unknown | null;
 }
@@ -87,6 +92,13 @@ export class MockProvider implements LearningProvider {
       return { kind: "abstain", objectiveId: o.objectiveId, reason: "insufficient_context", message: OFFLINE_PACER_MESSAGE };
     });
     return { results, meta: { ...meta, promptVersion: MOCK_PACER_PROMPT_VERSION } };
+  }
+
+  /** The authored sample material for an exactly matching sample-lecture objective; anything else is unsupported. */
+  async draftMaterial(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }> {
+    const draft = this.deps.authoredMaterial?.(input.objective.trim(), input.explanationWanted);
+    if (!draft) throw new ProviderError(OFFLINE_MATERIAL_MESSAGE, "offline_unsupported", false);
+    return { draft, meta: { ...meta, promptVersion: MOCK_MATERIAL_PROMPT_VERSION } };
   }
 
   /** The authored sample questions for an exactly matching sample-lecture objective; anything else is unsupported. */

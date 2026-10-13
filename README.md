@@ -56,6 +56,7 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run db:seed` | Migrates and regenerates `fixtures/sample-lecture.pdf` from `fixtures/lecture.json` (byte-deterministic; rewritten only when the bytes change). It inserts any missing demo content and updates the demo source text and checked explanations. An `authored_fixture` question is updated only when its fixture `version` increases; owner-reviewed and excluded questions are never changed, and sessions keep the frozen copy they used. Idempotent. It never touches learner records or imported uploads. |
 | `npm run demo:reset -- --yes` | Deletes sessions, attempts, exposures, assessments and review states **for the demo course only**, then re-seeds. Refuses to run without `--yes`, or if `demo-course` is not marked as a demo. Imported courses and uploads are never touched. |
 | `npm run eval:fixtures` | Evaluation harness (see below). Default `--mode mock`; `--mode live --yes` uses the configured provider. |
+| `npm run eval:pacer [-- --mode live --yes] [--repeat N]` | PACER classification report on the development cases (see PACER learning approach). The default `--mode mock` is a software check. |
 | `npm run content:review -- --list` / `-- --question S5-A --status owner_reviewed --by "Name"` | Lists question review status, or records that a named person reviewed a question. |
 | `npm run questions:import -- --file bank.json [--course <id>]` | Attaches an owner-authored question bank (same schema as `fixtures/questions.json`) to existing skills. Inserted as `authored_fixture`. |
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export. Never includes env vars or keys. Reference answers are omitted unless the flag is given. |
@@ -272,9 +273,34 @@ It is not a learning style, level or mastery measure, and no learning gain is cl
 - **Evaluation**: `fixtures/pacer/dev-cases.json` holds F01–F12 plus two invalid service responses (provisional, not owner-reviewed).
   Offline runs in `tests/unit/pacer-classification.test.ts` test software only; exact fixture agreement is not classifier accuracy.
 
-Known limitations: live classification has passed only the smoke test (`npm run smoke:live`), not an accuracy evaluation; imported PDFs get classification and review but
-no activities (no authored material or checked explanations); no UI for a learner-supplied familiar connection; no variant question
-after guided practice (keeps fresh families for checks); no tutor feedback on responses; no `eval:pacer` report script.
+- **Imported subtopics get activities** through **Learning activities** on the topic page. A background job (`draft_material`,
+  prompt `activity-material-v1`) drafts Connect and Reconstruct prompts, a make-your-own-comparison prompt, and, only where the pages
+  support them, a claim-support-limits excerpt and a capture-and-locate reference note. When the unit has none, it also drafts a
+  teaching explanation. Excerpts must be copied word for word from the cited page, Connect and Reconstruct come as a pair, and
+  failures are stored as *invalid*. Nothing is used until you approve it. Approval merges the material into the skill's context and,
+  if the unit had no explanation, makes the drafted one its **checked explanation**. Everything is shown openly for review, because
+  activities never change levels. Activities run in learning sessions alongside a practice question, so a subtopic needs an
+  approved question (see Drafting check questions) before they appear. Offline, only an imported copy of the sample lecture gets
+  material: the demo's authored material.
+- **Your own familiar connection.** Each skill in Learning approach has "Add something this reminds you of". It is never inferred.
+  It becomes part of the classification context, so an existing choice turns *Needs review*. When the source has no comparison of
+  its own, an analogous choice then routes to **Map and critique** on your comparison, shown as your own excerpt.
+- **Tutor feedback on responses.** A completed activity's responses offer "Get tutor feedback" (tutor job, prompt
+  `activity-feedback-v1`): what is right, one thing to add, one question. Asking records a feedback exposure for the skill in that
+  session first, so a later answer there counts as practice. It never creates an attempt, grade or level change, and it is stored, so
+  asking again does not call again.
+- **`npm run eval:pacer`** reports agreement with the development cases: valid results, an acceptable primary type, and the
+  expected activity. It also checks that the invalid-response fixtures are rejected. `--mode live --yes [--repeat N]` uses the
+  curriculum model. The latest live run (2026-10-13, `gpt-5.5-2026-04-23`, 3 runs): 12/12 valid with an acceptable type and 11/11
+  expected activities in the first run, after two fixes it found. Support may now quote the learning goal (`learning_goal`; prompt
+  `pacer-classifier-v2`), because F03 was invalid in every run when it could not. An abstention with a null message is now accepted
+  with its reason's text, because F11 was intermittently rejected. A later stability rerun was cut short by the OpenAI account
+  running out of credit. The labels are provisional and these are development cases, not a benchmark.
+
+Known limitations: no variant question after guided practice (fresh families are kept for checks); activity drafts cannot be edited
+in place (reject and draft again); learning sessions still need a practice question for a subtopic's activities to appear; tutor
+feedback and live activity drafting were tested with stubbed providers only. The OpenAI account ran out of credit before they could
+be run live.
 
 ## Sample content
 

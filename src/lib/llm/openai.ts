@@ -17,6 +17,9 @@ import {
   chatUserContent,
   PACER_PROMPT_VERSION,
   QUESTION_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_PROMPT_VERSION,
+  MATERIAL_DRAFT_SYSTEM,
+  materialDraftUserContent,
   ACTIVITY_FEEDBACK_PROMPT_VERSION,
   ACTIVITY_FEEDBACK_SYSTEM,
   activityFeedbackUserContent,
@@ -30,6 +33,7 @@ import {
 } from "./prompts";
 import { fromWire, pacerJsonSchema, wireBatchSchema } from "../pacer/validation";
 import { draftBatchJsonSchema, looseDraftBatchSchema } from "../questions/drafts";
+import { materialDraftJsonSchema } from "../pacer/materialDrafts";
 import { jobModels, uniformJobs, type JobConfigs, type JobModels, type LlmJob } from "./jobs";
 import {
   assessorJsonSchema,
@@ -54,6 +58,7 @@ import {
   type PacerClassifyInput,
   type QuestionDraftInput,
   type TranscribeInput,
+  type MaterialDraftInput,
   type ActivityFeedbackInput,
   type PageTranscription,
   type UserContent,
@@ -290,6 +295,18 @@ export class OpenAIProvider implements LearningProvider {
     const feedback = text.trim().slice(0, MAX_TUTOR_CHARS);
     if (!feedback) throw new ProviderError("Tutor returned no feedback.", "provider_malformed", true);
     return { feedback, meta: this.meta("tutor", ACTIVITY_FEEDBACK_PROMPT_VERSION, usage) };
+  }
+
+  /** Activity material under the curriculum job's model. Grounding and pairing are checked server-side afterwards. */
+  async draftMaterial(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }> {
+    const { value, usage } = await this.structured(
+      "curriculum",
+      MATERIAL_DRAFT_SYSTEM,
+      materialDraftUserContent(input),
+      { name: "activity_material", schema: materialDraftJsonSchema },
+      z.record(z.string(), z.unknown()),
+    );
+    return { draft: value, meta: this.meta("curriculum", MATERIAL_DRAFT_PROMPT_VERSION, usage) };
   }
 
   /** Records the model that actually ran this job. */

@@ -400,3 +400,74 @@ export function getResponseByKey(db: DB, sessionId: string, key: string): Respon
 export function listResponses(db: DB, activityId: string): ResponseRow[] {
   return (db.prepare("SELECT * FROM pacer_responses WHERE activity_id = ? ORDER BY step_index").all(activityId) as RawResponse[]).map(mapResponse);
 }
+
+// ---------------------------------------------------------------- material drafts
+
+export type MaterialDraftStatus = "draft" | "approved" | "rejected" | "invalid";
+
+export interface MaterialDraftRow {
+  id: string;
+  skillId: string;
+  skillVersion: number;
+  status: MaterialDraftStatus;
+  /** MaterialDraft when valid; the raw candidate when invalid. */
+  draft: unknown;
+  problems: string[];
+  providerMode: "mock" | "live";
+  providerModel: string | null;
+  promptVersion: string;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+interface RawMaterialDraft {
+  id: string;
+  skill_id: string;
+  skill_version: number;
+  status: MaterialDraftStatus;
+  draft_json: string;
+  problems_json: string;
+  provider_mode: "mock" | "live";
+  provider_model: string | null;
+  prompt_version: string;
+  created_at: number;
+  decided_at: number | null;
+}
+
+const mapMaterialDraft = (r: RawMaterialDraft): MaterialDraftRow => ({
+  id: r.id,
+  skillId: r.skill_id,
+  skillVersion: r.skill_version,
+  status: r.status,
+  draft: JSON.parse(r.draft_json),
+  problems: JSON.parse(r.problems_json),
+  providerMode: r.provider_mode,
+  providerModel: r.provider_model,
+  promptVersion: r.prompt_version,
+  createdAt: r.created_at,
+  decidedAt: r.decided_at,
+});
+
+export function insertMaterialDraft(db: DB, d: Omit<MaterialDraftRow, "id" | "decidedAt">): string {
+  const id = newId();
+  db.prepare(
+    `INSERT INTO pacer_material_drafts (id, skill_id, skill_version, status, draft_json, problems_json, provider_mode, provider_model,
+       prompt_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, d.skillId, d.skillVersion, d.status, JSON.stringify(d.draft), JSON.stringify(d.problems), d.providerMode, d.providerModel, d.promptVersion, d.createdAt);
+  return id;
+}
+
+export function getMaterialDraft(db: DB, id: string): MaterialDraftRow | null {
+  const r = db.prepare("SELECT * FROM pacer_material_drafts WHERE id = ?").get(id) as RawMaterialDraft | undefined;
+  return r ? mapMaterialDraft(r) : null;
+}
+
+export function listMaterialDraftsForSkill(db: DB, skillId: string): MaterialDraftRow[] {
+  return (db.prepare("SELECT * FROM pacer_material_drafts WHERE skill_id = ? ORDER BY created_at, rowid").all(skillId) as RawMaterialDraft[]).map(mapMaterialDraft);
+}
+
+/** Compare-and-set decision: only a row still in `from` changes. */
+export function decideMaterialDraft(db: DB, id: string, from: MaterialDraftStatus[], to: "approved" | "rejected", at: number): boolean {
+  const placeholders = from.map(() => "?").join(", ");
+  return db.prepare(`UPDATE pacer_material_drafts SET status = ?, decided_at = ? WHERE id = ? AND status IN (${placeholders})`).run(to, at, id, ...from).changes === 1;
+}

@@ -19,6 +19,8 @@ import {
   type QuestionDraftInput,
   type TranscribeInput,
   type ActivityFeedbackInput,
+  type MaterialDraftInput,
+  OFFLINE_MATERIAL_MESSAGE,
   OFFLINE_FEEDBACK_MESSAGE,
   type PageTranscription,
   OFFLINE_OCR_MESSAGE,
@@ -206,6 +208,11 @@ export class MeteredProvider implements LearningProvider {
     const inner = this.inner;
     if (!inner.classifyPacer) return Promise.reject(new ProviderError("This provider cannot classify learning objectives.", "provider_unavailable", false));
     return this.run("curriculum", () => inner.classifyPacer!(input));
+  }
+  draftMaterial(input: MaterialDraftInput): Promise<{ draft: unknown; meta: ProviderMeta }> {
+    const inner = this.inner;
+    if (!inner.draftMaterial) return Promise.reject(new ProviderError(OFFLINE_MATERIAL_MESSAGE, "offline_unsupported", false));
+    return this.run("curriculum", () => inner.draftMaterial!(input));
   }
   activityFeedback(input: ActivityFeedbackInput): Promise<{ feedback: string; meta: ProviderMeta }> {
     const inner = this.inner;

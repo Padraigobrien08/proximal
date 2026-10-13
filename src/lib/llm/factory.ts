@@ -61,6 +61,9 @@ class UnavailableProvider implements LearningProvider {
   async activityFeedback(): Promise<never> {
     this.fail();
   }
+  async draftMaterial(): Promise<never> {
+    this.fail();
+  }
 }
 
 export function fixtureCurriculumDraft(): CurriculumDraft {
@@ -124,6 +127,36 @@ export function authoredDrafts(): Map<string, unknown> {
   return m;
 }
 
+/**
+ * The demo's authored activity material and checked explanation, in draft form, keyed by the exact skill objective of
+ * the fixture curriculum. Offline only: an imported copy of the sample lecture can then go through material review.
+ * Only page-grounded parts carry over (an authored analogy chunk does not exist in an imported course).
+ */
+export function authoredMaterial(objective: string, explanationWanted: boolean): unknown | null {
+  const { curriculum, pacer } = loadFixtures();
+  for (const unit of curriculum.topics.flatMap((t) => t.units)) {
+    const skill = unit.skills.find((s) => s.objective.trim() === objective);
+    if (!skill) continue;
+    const m = pacer.skills.find((p) => p.skillId === skill.id)?.material as Record<string, Record<string, unknown>> | undefined;
+    if (!m) return null;
+    const pageOf = (chunkId: unknown) => (typeof chunkId === "string" && /^p\d+$/.test(chunkId) ? Number(chunkId.slice(1)) : null);
+    const evidencePage = pageOf(m.evidence?.chunkId);
+    const referencePage = pageOf(m.reference?.chunkId);
+    return {
+      explanation: explanationWanted ? { text: unit.explanation, workedExample: unit.workedExample } : null,
+      connect: m.connect ?? null,
+      reconstruct: m.reconstruct ?? null,
+      createAnalogy: m.createAnalogy ?? null,
+      evidence: m.evidence && evidencePage ? { page: evidencePage, excerpt: m.evidence.excerpt, claim: m.evidence.claim, prompt: m.evidence.prompt } : null,
+      reference:
+        m.reference && referencePage
+          ? { page: referencePage, excerpt: m.reference.excerpt, prompt: m.reference.prompt, recallPrompt: m.reference.recallPrompt ?? null }
+          : null,
+    };
+  }
+  return null;
+}
+
 export function sampleLectureSha(): string | null {
   if (!existsSync(SAMPLE_PDF_PATH)) return null;
   return createHash("sha256").update(readFileSync(SAMPLE_PDF_PATH)).digest("hex");
@@ -150,6 +183,7 @@ export function createMockProvider(db: Database.Database): MockProvider {
     sampleLecture: sha ? { sha256: sha, draft: fixtureCurriculumDraft() } : null,
     pacerAnnotation: (hash) => pacerAnnotations().get(hash) ?? null,
     authoredDrafts: (objective) => authoredDrafts().get(objective) ?? null,
+    authoredMaterial,
   });
   if (faultState.__proximalMockFailures && faultState.__proximalMockFailures > 0) {
     const real = provider.assessAnswer.bind(provider);

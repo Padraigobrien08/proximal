@@ -491,6 +491,7 @@ function ConnectionEditor({ skillId, saved, disabled, onSaved }: { skillId: stri
           maxLength={500}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          aria-label="Something this reminds you of"
           data-testid={`connection-text-${skillId}`}
         />
       </label>

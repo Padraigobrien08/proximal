@@ -5,11 +5,11 @@ import { newId } from "./repo";
 
 type DB = Database.Database;
 
-export type JobKind = "assess_attempt" | "draft_questions";
+export type JobKind = "assess_attempt" | "draft_questions" | "draft_material";
 export type JobStatus = "queued" | "running" | "done" | "failed";
 
 /** Longer than the job's worst case (provider timeout plus one repair turn), so a live run is never reclaimed. */
-export const JOB_LEASE_MS: Record<JobKind, number> = { assess_attempt: 4 * 60_000, draft_questions: 8 * 60_000 };
+export const JOB_LEASE_MS: Record<JobKind, number> = { assess_attempt: 4 * 60_000, draft_questions: 8 * 60_000, draft_material: 8 * 60_000 };
 /** Runs cut short by a crash before a job is given up. Provider errors are not crashes: handlers record them. */
 export const MAX_JOB_RUNS = 3;
 
