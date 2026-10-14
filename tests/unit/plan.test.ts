@@ -121,6 +121,45 @@ describe("study plan", () => {
     expect(repaired.recommendation).toMatchObject({ action: "view", title: "Your next check is scheduled", dueAt: T0 + MS_DAY });
   });
 
+  it("AC11: due skills group by topic into at most three blocks with reasons; a long-overdue topic surfaces first", () => {
+    const due = (topicId: string, topicTitle: string, dueAt: number, over: Partial<PlanSkill> = {}) =>
+      skill({ topicId, topicTitle, evidenceState: "demonstrated_once", attempted: true, dueAt, ...over });
+    const skills = [
+      due("T1", "Recently due", T0 - MS_HOUR),
+      due("T1", "Recently due", T0 - MS_HOUR, { primaryTaskType: "calculate" }),
+      due("T2", "Due yesterday", T0 - MS_DAY),
+      due("T3", "Due today", T0 - 2 * MS_HOUR),
+      due("T4", "Due this morning", T0 - 3 * MS_HOUR),
+      due("T9", "Long overdue", T0 - 60 * MS_DAY), // listed last: order must not hide it
+    ];
+    const p = buildStudyPlan({ now: T0, budgetMinutes: 30, activeSessions: [], skills });
+
+    expect(p.plan.length).toBeLessThanOrEqual(3);
+    expect(p.plan[0]).toMatchObject({ topicTitle: "Long overdue", action: "review", dueAt: T0 - 60 * MS_DAY });
+    expect(p.recommendation?.topicTitle).toBe("Long overdue");
+    expect(p.plan.map((t) => t.topicTitle)).toEqual(["Long overdue", "Due yesterday", "Due this morning"]);
+    for (const t of p.plan) expect(t.reason).toMatch(/\S/);
+    // Grouped by topic: one block per topic, never one per skill.
+    expect(new Set(p.plan.map((t) => t.topicId)).size).toBe(p.plan.length);
+
+    const grouped = buildStudyPlan({ now: T0, budgetMinutes: 30, activeSessions: [], skills: skills.filter((s) => s.topicId === "T1") });
+    expect(grouped.plan).toHaveLength(1);
+    expect(grouped.plan[0].skillIds).toHaveLength(2);
+    expect(grouped.plan[0].reason).toBe("Scheduled check is due");
+  });
+
+  it("AC11: per spec, reassessment outranks a long-overdue review; the overdue topic returns once those are done", () => {
+    const reassess = (topicId: string) =>
+      skill({ topicId, topicTitle: topicId, evidenceState: "developing", attempted: true, reassessmentNeeded: true, dueAt: T0 - MS_HOUR });
+    const overdue = skill({ topicId: "T9", topicTitle: "Long overdue", evidenceState: "demonstrated_once", attempted: true, dueAt: T0 - 60 * MS_DAY });
+    const busy = buildStudyPlan({ now: T0, budgetMinutes: 30, activeSessions: [], skills: [reassess("R1"), reassess("R2"), reassess("R3"), overdue] });
+    expect(busy.plan.map((t) => t.topicId)).toEqual(["R1", "R2", "R3"]);
+    for (const t of busy.plan) expect(t.reason).toBe("Explanation needs another check");
+
+    const after = buildStudyPlan({ now: T0, budgetMinutes: 30, activeSessions: [], skills: [overdue] });
+    expect(after.plan[0]).toMatchObject({ topicId: "T9", action: "review", reason: "Scheduled explanation check is due" });
+  });
+
   it("U10: the 10/20/30 budget changes task coverage when enough work exists; one task stays one task", () => {
     const many = [
       skill({ topicId: "A", topicTitle: "A" }),

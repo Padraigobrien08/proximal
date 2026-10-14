@@ -4,7 +4,7 @@ Integrity table for the finish report. One row per acceptance criterion; evidenc
 
 **Status key:** ✅ Pass (automated) · 🟡 Partial · 📝 Manual — pending · ⛔ Gap (missing feature → report limitations) · 🐞 Bug (fix before pilot)
 
-Last automated run: 2026-10-14 — `npm test` 203/203 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
+Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
 
 ## High risk
 
@@ -25,7 +25,7 @@ Last automated run: 2026-10-14 — `npm test` 203/203 passed, `npm run typecheck
 | AC03 | Question payload carries no reference answer, rubric or examples before the permitted reveal | ✅ | `tests/integration/sessions.test.ts` › "T15: session payloads contain no reference answers, hints, rubric or unreleased feedback"; `tests/integration/home.test.ts` › "U14: initial home/topic/session payloads carry no reference answers…" | Optional: screenshot of the network tab for the report. |
 | AC04 | Hint/source/solution exposure written before content is returned | ✅ | `tests/integration/sessions.test.ts` › "T03: source/solution reveal is committed before content is returned", "declared external assistance records an exposure before submission…" | |
 | AC06 | A perfect definition answer leaves derivation/application unassessed | ✅ | `tests/integration/sessions.test.ts` › "records explanation and application capability separately…" (T05 assertions) | |
-| AC11 | Plan grouped by topic, ≤3 blocks, each with a reason; long-overdue topic still surfaces | 📝 | `tests/unit/plan.test.ts` › "U09: due review beats new learning…", "U10: the 10/20/30 budget…", "a critical due task is not skipped for smaller work"; cap at `src/lib/services/views.ts:179` | Manually check that a long-overdue topic appears and that each block shows its reason. |
+| AC11 | Plan grouped by topic, ≤3 blocks, each with a reason; long-overdue topic still surfaces | ✅ | `tests/unit/plan.test.ts` › "AC11: due skills group by topic into at most three blocks with reasons; a long-overdue topic surfaces first", "AC11: per spec, reassessment outranks a long-overdue review; the overdue topic returns once those are done", "U09: due review beats new learning…" | Due reviews are ordered oldest-due first, so a 60-day-overdue topic leads the plan. Per the queue rule (IMPLEMENTATION_HANDOFF.md, "Queue: due skills with reassessment_needed first…"), three or more reassessment topics can hold an overdue review off today's plan; it returns once they are cleared and its evidence is never lowered. Disclose as a design choice. |
 
 ## Lower risk
 
