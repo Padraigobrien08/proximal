@@ -4,7 +4,7 @@ Integrity table for the finish report. One row per acceptance criterion; evidenc
 
 **Status key:** ✅ Pass (automated) · 🟡 Partial · 📝 Manual — pending · ⛔ Gap (missing feature → report limitations) · 🐞 Bug (fix before pilot)
 
-Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
+Last automated run: 2026-10-14 — `npm test` 208/208 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
 
 ## High risk
 
@@ -32,7 +32,7 @@ Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck
 | ID | Criterion | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | AC01 | Text, scanned and corrupt/oversized imports; valid page refs; failures name pages | ✅ | `tests/integration/imports.test.ts` › "valid sample… correct page refs", "empty/scanned, corrupt, non-PDF, encrypted-like and oversized files produce actionable errors"; `tests/integration/scanned-import.test.ts` (all) | Check the printed-label vs PDF-index case is covered by a fixture; if not, note it. |
-| AC13 | Seeded demo data contains no participant answers; single-user/local | 📝 | — | Run `npm run demo:reset` and confirm no attempts rows. State "single-user, local only" in the report. |
+| AC13 | Seeded demo data contains no participant answers; single-user/local | ✅ | `tests/integration/demo-reset.test.ts` › "a freshly seeded demo contains no learner records", "demo reset clears every demo learner record, including chat help, and leaves imported courses untouched", "refuses to reset when the demo course id is not marked as demo" | Historical replay is built in memory from a fixture and never stored. **Bug fixed:** `demo:reset` used to leave demo chat threads, approach choices, learner connections and grading jobs; leftover chat counted as recent help for 3 hours, so a "clean" learner's first check could be recorded as supported. State "single-user, local only" in the report. |
 | AC14 | Export valid JSON; delete leaves no dependents; keyboard-only navigation; math plain-text equivalent | 📝 | Scripts: `npm run data:export`, `npm run data:delete-course` | Manual: keyboard-only session run, screen-reader/plain-text check on KaTeX output. |
 | AC15 | Section 23 demo from a clean seeded learner | 📝 | `tests/e2e/01-showcase.spec.ts`, `tests/e2e/05-continue.spec.ts` | Rehearse by hand and confirm any replay is visibly labelled. |
 
@@ -41,4 +41,5 @@ Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck
 | ID | Type | Description | Action |
 | --- | --- | --- | --- |
 | AC02 | ⛔ Missing feature | No prerequisite reject/regenerate flow; prerequisites are non-binding text suggestions. | Limitations section. |
+| AC13 | 🐞 Bug — fixed | `demo:reset` left demo chat, approach choices, learner connections and grading jobs; chat leftovers counted as help on the next check. | Fixed in `resetDemoLearner` (`src/lib/services/seed.ts`), covered by `tests/integration/demo-reset.test.ts`. |
 | AC12 | 🟡 Evidence gap | Crash recovery tested by simulated lease expiry, not a real process kill. | Record a manual run or disclose. |
