@@ -4,7 +4,7 @@ Integrity table for the finish report. One row per acceptance criterion; evidenc
 
 **Status key:** ✅ Pass (automated) · 🟡 Partial · 📝 Manual — pending · ⛔ Gap (missing feature → report limitations) · 🐞 Bug (fix before pilot)
 
-Last automated run: 2026-10-14 — `npm test` 203/203 passed, `npm run typecheck` clean. E2E (`npm run test:e2e`) not re-run on this date.
+Last automated run: 2026-10-14 — `npm test` 203/203 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
 
 ## High risk
 
