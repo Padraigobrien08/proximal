@@ -4,7 +4,7 @@ Integrity table for the finish report. One row per acceptance criterion; evidenc
 
 **Status key:** ✅ Pass (automated) · 🟡 Partial · 📝 Manual — pending · ⛔ Gap (missing feature → report limitations) · 🐞 Bug (fix before pilot)
 
-Last automated run: 2026-10-14 — `npm test` 212/212 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
+Last automated run: 2026-10-20 — `npm test` 215/215 passed, `npm run typecheck` clean, `npm run test:e2e` 8/8 passed.
 
 ## High risk
 
@@ -33,7 +33,7 @@ Last automated run: 2026-10-14 — `npm test` 212/212 passed, `npm run typecheck
 | --- | --- | --- | --- | --- |
 | AC01 | Text, scanned and corrupt/oversized imports; valid page refs; failures name pages | ✅ | `tests/integration/imports.test.ts` › "valid sample… correct page refs", "empty/scanned, corrupt, non-PDF, encrypted-like and oversized files produce actionable errors"; `tests/integration/scanned-import.test.ts` (all) | Check the printed-label vs PDF-index case is covered by a fixture; if not, note it. |
 | AC13 | Seeded demo data contains no participant answers; single-user/local | ✅ | `tests/integration/demo-reset.test.ts` › "a freshly seeded demo contains no learner records", "demo reset clears every demo learner record, including chat help, and leaves imported courses untouched", "refuses to reset when the demo course id is not marked as demo" | Historical replay is built in memory from a fixture and never stored. **Bug fixed:** `demo:reset` used to leave demo chat threads, approach choices, learner connections and grading jobs; leftover chat counted as recent help for 3 hours, so a "clean" learner's first check could be recorded as supported. State "single-user, local only" in the report. |
-| AC14 | Export valid JSON; delete leaves no dependents; keyboard-only navigation; math plain-text equivalent | 🟡 | `tests/integration/course-data.test.ts` › "is valid JSON with every learner record for the course…", "removes every dependent record and upload of an imported course, including its jobs, and nothing else", "removes grading jobs for the deleted course's attempts", "an explanation exposure in a deleted course leaves no orphaned learner rows" | Export and delete pass. **Bugs fixed:** export omitted chat, approach choices, connections, activity responses and study runs; delete left job rows (no foreign key). Still manual: keyboard-only session run and a plain-text check on KaTeX output. |
+| AC14 | Export valid JSON; delete leaves no dependents; keyboard-only navigation; math plain-text equivalent | ✅ | `tests/integration/course-data.test.ts` (export completeness and isolation; delete leaves no dependent records, jobs or files); `tests/e2e/07-keyboard.spec.ts` › "keyboard only: reach a topic, take a quick check, use help and plain text, and close dialogs with focus returned", "plain-text view of a maths question has no TeX and keeps exponent grouping"; `tests/unit/math-text.test.ts` (every authored expression) | Keyboard: every control reachable by Tab with a visible focus indicator; flag dialog and chat drawer return focus on Escape. Maths: KaTeX output is hidden from screen readers with a plain-text equivalent beside it. **Bugs fixed** (see below). Minor, not fixed: below the desktop breakpoint the chat drawer overlays the page but does not trap Tab. |
 | AC15 | Section 23 demo from a clean seeded learner | 📝 | `tests/e2e/01-showcase.spec.ts`, `tests/e2e/05-continue.spec.ts` | Rehearse by hand and confirm any replay is visibly labelled. |
 
 ## Bugs and gaps found
@@ -43,4 +43,5 @@ Last automated run: 2026-10-14 — `npm test` 212/212 passed, `npm run typecheck
 | AC02 | ⛔ Missing feature | No prerequisite reject/regenerate flow; prerequisites are non-binding text suggestions. | Limitations section. |
 | AC13 | 🐞 Bug — fixed | `demo:reset` left demo chat, approach choices, learner connections and grading jobs; chat leftovers counted as help on the next check. | Fixed in `resetDemoLearner` (`src/lib/services/seed.ts`), covered by `tests/integration/demo-reset.test.ts`. |
 | AC14 | 🐞 Bug — fixed | Export left out chat, approach choices, learner connections, activity responses and study runs; course deletion left job rows behind. | Fixed in `src/lib/services/courseData.ts`, covered by `tests/integration/course-data.test.ts`. |
+| AC14 | 🐞 Bug — fixed | Screen-reader maths dropped exponent grouping (`p^{1-y}` read as `p^1-y`) and ran words together ("ylog p"); "Show plain text" showed raw TeX. | Fixed in `src/components/MathText.tsx` and `SessionScreen.tsx`, covered by `tests/unit/math-text.test.ts` and `tests/e2e/07-keyboard.spec.ts`. |
 | AC12 | 🟡 Evidence gap | Crash recovery tested by simulated lease expiry, not a real process kill. | Record a manual run or disclose. |

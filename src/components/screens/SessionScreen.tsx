@@ -11,7 +11,7 @@ import { notifyDataChanged } from "../dataEvents";
 import { EvidenceLabel } from "../EvidenceLabel";
 import { FlagJudgementButton } from "../FlagDialog";
 import { AskButton } from "../AskButton";
-import { MathText } from "../MathText";
+import { MathText, plainText } from "../MathText";
 import type { ProviderInfo } from "../ProviderBadge";
 import { useApiResource } from "../useApiResource";
 import { ProviderNotice } from "../workspace";
@@ -460,7 +460,7 @@ function QuestionPanel({
           {item.questionStatus === "authored_fixture" && <Pill>Authored fixture</Pill>}
         </div>
         <p id={`prompt-${id}`} className="mt-3 text-[17px] leading-relaxed" data-testid="question-prompt">
-          {plain ? item.question.prompt : <MathText text={item.question.prompt} />}
+          {plain ? plainText(item.question.prompt) : <MathText text={item.question.prompt} />}
         </p>
         <button type="button" className="mt-1 min-h-8 text-xs text-teal underline" onClick={() => setPlain((p) => !p)}>
           {plain ? "Show formatted maths" : "Show plain text"}

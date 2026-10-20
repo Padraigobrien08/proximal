@@ -25,8 +25,10 @@ export function plainMath(tex: string): string {
     .replace(/\\theta/g, "θ")
     .replace(/\\(?:mathrm|text)\{([^}]*)\}/g, "$1")
     .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
-    .replace(/\\sum_?/g, "Σ")
-    .replace(/\\prod_?/g, "Π")
+    .replace(/\\sum/g, "Σ")
+    .replace(/\\prod/g, "Π")
+    // "y\log p" reads "y log p", not "ylog p".
+    .replace(/(?<=[A-Za-z0-9)\]])\\(log|ln)/g, " $1")
     .replace(/\\(log|ln)/g, "$1")
     .replace(/\\times/g, "×")
     .replace(/\\cdot/g, "·")
@@ -35,8 +37,17 @@ export function plainMath(tex: string): string {
     .replace(/\\approx/g, "≈")
     .replace(/\\to/g, "→")
     .replace(/\\,/g, " ")
+    // Keep grouping of multi-character exponents/subscripts: p^{1-y} -> p^(1-y), not p^1-y.
+    .replace(/([_^])\{([^{}]*)\}/g, (_m, op: string, body: string) => (body.length > 1 ? `${op}(${body})` : `${op}${body}`))
     .replace(/[{}]/g, "")
     .replace(/\\/g, "");
+}
+
+/** Authored text with every inline $...$ TeX span replaced by its plain-text equivalent. */
+export function plainText(source: string): string {
+  return splitMath(source)
+    .map((p) => (p.kind === "text" ? p.value : plainMath(p.value)))
+    .join("");
 }
 
 /** Renders authored text with inline $...$ TeX through KaTeX (trust off). Learner text is never rendered as math/HTML. */
