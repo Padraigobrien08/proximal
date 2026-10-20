@@ -196,3 +196,42 @@ export async function seedDemo(input: SeedInput) {
   if (!existsSync(dest) || !readFileSync(dest).equals(readFileSync(input.samplePdfPath))) copyFileSync(input.samplePdfPath, dest);
   return report;
 }
+
+export interface DemoResetReport {
+  sessions: number;
+  chatThreads: number;
+  decisions: number;
+  connections: number;
+  jobs: number;
+}
+
+/**
+ * Clears every learner record for the DEMO course: sessions (with their attempts, exposures, assessments and
+ * activity responses), study runs, review states, chat threads (with messages and skill touches, which otherwise
+ * count as recent help), learning-approach decisions, learner connections and grading jobs for demo attempts.
+ * Authored content, model proposals, imported courses and uploads are untouched. Call seedDemo afterwards.
+ */
+export function resetDemoLearner(db: Database.Database): DemoResetReport {
+  const course = db.prepare("SELECT is_demo FROM courses WHERE id = ?").get(DEMO_COURSE_ID) as { is_demo: number } | undefined;
+  if (course && course.is_demo !== 1) throw new Error("Guard: the demo course id exists but is not marked as demo. Refusing to reset.");
+  const demoTopics = "SELECT id FROM topics WHERE course_id = @course";
+  const demoSkills = "SELECT s.id FROM skills s JOIN units u ON u.id = s.unit_id JOIN topics t ON t.id = u.topic_id WHERE t.course_id = @course";
+  const demoSessions = `SELECT id FROM sessions WHERE is_demo = 1 AND topic_id IN (${demoTopics})`;
+  const p = { course: DEMO_COURSE_ID };
+  return db.transaction((): DemoResetReport => {
+    // Grading jobs reference attempts by id (no foreign key): remove them before their attempts go.
+    const jobs = db
+      .prepare(`DELETE FROM jobs WHERE kind = 'assess_attempt' AND ref_id IN (SELECT id FROM attempts WHERE session_id IN (${demoSessions}))`)
+      .run(p).changes;
+    // Study runs that worked through demo sessions go with them.
+    db.prepare(
+      `DELETE FROM study_runs WHERE id IN (SELECT run_id FROM study_run_steps WHERE session_id IN (${demoSessions}))`,
+    ).run(p);
+    const sessions = db.prepare(`DELETE FROM sessions WHERE id IN (${demoSessions})`).run(p).changes;
+    db.prepare(`DELETE FROM review_states WHERE skill_id IN (${demoSkills})`).run(p);
+    const chatThreads = db.prepare("DELETE FROM chat_threads WHERE course_id = @course").run(p).changes;
+    const decisions = db.prepare(`DELETE FROM pacer_decisions WHERE skill_id IN (${demoSkills})`).run(p).changes;
+    const connections = db.prepare(`DELETE FROM pacer_learner_connections WHERE skill_id IN (${demoSkills})`).run(p).changes;
+    return { sessions, chatThreads, decisions, connections, jobs };
+  })();
+}

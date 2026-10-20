@@ -2,33 +2,27 @@
 import { loadFixtures, SAMPLE_PDF_PATH } from "../src/lib/content/fixtures";
 import { databasePath, openDatabase } from "../src/lib/db/connection";
 import { runMigrations } from "../src/lib/db/migrate";
-import { DEMO_COURSE_ID, seedDemo } from "../src/lib/services/seed";
+import { resetDemoLearner, seedDemo } from "../src/lib/services/seed";
 import { dataDir, flag, loadDotEnv } from "./_lib";
 
 loadDotEnv();
 if (!flag("yes")) {
-  console.error("demo:reset deletes all sessions, attempts, exposures and assessments for the demo course.\nRe-run with: npm run demo:reset -- --yes");
+  console.error("demo:reset deletes all learner records for the demo course: sessions, attempts, exposures, assessments, chat, approach choices and connections.\nRe-run with: npm run demo:reset -- --yes");
   process.exit(1);
 }
 const dir = dataDir();
 const db = openDatabase(databasePath(dir));
 runMigrations(db);
-const course = db.prepare("SELECT id, is_demo FROM courses WHERE id = ?").get(DEMO_COURSE_ID) as { id: string; is_demo: number } | undefined;
-if (course && course.is_demo !== 1) {
-  console.error("Guard: the demo course id exists but is not marked as demo. Refusing to reset.");
+let res;
+try {
+  res = resetDemoLearner(db);
+} catch (err) {
+  console.error((err as Error).message);
   process.exit(1);
 }
-const res = db.transaction(() => {
-  // Study runs that worked through demo sessions go with them.
-  db.prepare(
-    "DELETE FROM study_runs WHERE id IN (SELECT st.run_id FROM study_run_steps st JOIN sessions s ON s.id = st.session_id WHERE s.is_demo = 1 AND s.topic_id IN (SELECT id FROM topics WHERE course_id = ?))",
-  ).run(DEMO_COURSE_ID);
-  const sessions = db
-    .prepare("DELETE FROM sessions WHERE is_demo = 1 AND topic_id IN (SELECT id FROM topics WHERE course_id = ?)")
-    .run(DEMO_COURSE_ID).changes;
-  db.prepare("DELETE FROM review_states WHERE skill_id IN (SELECT s.id FROM skills s JOIN units u ON u.id = s.unit_id JOIN topics t ON t.id = u.topic_id WHERE t.course_id = ?)").run(DEMO_COURSE_ID);
-  return sessions;
-})();
 await seedDemo({ db, now: Date.now(), dataDir: dir, samplePdfPath: SAMPLE_PDF_PATH, fixtures: loadFixtures() });
-console.log(`Removed ${res} demo session(s) and their attempts/exposures/assessments. Imported courses and uploads untouched.`);
+console.log(
+  `Removed ${res.sessions} demo session(s) and their attempts/exposures/assessments, ${res.chatThreads} chat thread(s), ` +
+    `${res.decisions} approach decision(s), ${res.connections} learner connection(s) and ${res.jobs} grading job(s). Imported courses and uploads untouched.`,
+);
 db.close();
