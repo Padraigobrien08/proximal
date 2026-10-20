@@ -20,25 +20,29 @@ npm run dev        # http://127.0.0.1:3000
 
 ### Acceptance demo (offline mode)
 
-1. **Overview** (`/`) shows the real starting action (“Start Model and likelihood”), a session plan for the selected 10/20/30-minute
-   budget, and the course card with real counts (“0 of 6 required skills checked independently”).
-2. Open **AI classification demo → Binary cross-entropy** and choose **Check understanding** (an independent check, with no
-   explanation first).
+Start from a clean demo learner (`npm run demo:reset -- --yes`).
+
+1. **Overview** (`/`) shows today's session (“Start Model notation & Dataset likelihood, then 2 more steps.”), a dial that
+   sets its length, and the module card with real counts (“0 of 6 subtopics checked on your own”).
+2. Open **AI classification demo → Binary cross-entropy**, then **Choose what to study → Check myself now** (a no-help quick
+   check, with no explanation first).
 3. Question 1 (S4-A, explanation): click **Demo example: correct** and **Submit answer**. You only see “Answer saved.”
 4. Question 2 (S5-A, calculation): click **Demo example: wrong** (`BCE = ln(0.8) ≈ −0.22314.`, a sign error) and submit.
-5. The results lead with “You explained Binary cross-entropy independently. The calculation needs practice.” Each skill is shown
-   separately. Click **Show criterion feedback**.
-6. Click **Practise calculation**, then **Get help → Show a general cue**. Fill **Demo example: correct** and **Submit correction**.
-   The correction is saved as a new attempt and recorded as supported; the original wrong answer stays. The summary becomes
-   “… Calculation completed with support. A fresh independent check is scheduled.”
-7. **Return to overview**. **Recent evidence** shows Explain BCE as **Demonstrated independently** and Calculate BCE as
-   **Completed with support**. **Upcoming check** shows Binary cross-entropy “tomorrow at …” (24 elapsed hours after the
-   calculation gap). The course card shows “1 of 6”. Refresh or restart the server and the state is unchanged.
-8. On the topic page, **Derive BCE** stays **Not checked yet**. The evidence history interleaves the original answers, the hint and
-   the supported correction; each answer expands to its text, released criterion feedback, provider label and **Flag judgement**.
-9. A later real check after 24 hours selects the fresh S5-B comparison task. A pass there is **Demonstrated independently**, not
-   retention. **Open historical example (seeded)** shows prepared example dates and is labelled “Seeded example — not participant
-   data”; it is computed from a fixture, not stored as learner records.
+5. Feedback is released as soon as both answers are assessed. The results lead with “You explained Binary cross-entropy on
+   your own. The calculation missed a step.” Each skill is shown separately: the explanation is **Checked**, the calculation
+   is **Learning** (“Application needs another check”). Open **Feedback on your answer** to see the criterion feedback.
+6. Click **Practise calculation**, then **Get help → Show a general cue**. Fill **Demo example: correct** and **Submit
+   correction**. The correction is saved as a new attempt and recorded as practice; the original wrong answer stays. The
+   summary becomes “… Calculation fixed with help. A fresh no-help check is scheduled.” and the calculation is **Practised**.
+7. **Return to overview**. The module card shows “1 of 6 subtopics checked on your own”. Refresh or restart the server and
+   the state is unchanged.
+8. On the Binary cross-entropy topic page, the subtopics read **Checked** (meaning), **Practised** (calculation, “No-help
+   check tomorrow at …”, 24 elapsed hours after the gap) and **Not started** (derivation). **Answer history** interleaves the
+   original answers (“Right with no help”, “Missed a step”), the hint (“Hint shown · help recorded”) and the correction
+   (“Right with help”); **Details** opens each answer's text and criterion feedback, with **Flag judgement**.
+9. A later real check after 24 hours selects the fresh S5-B comparison task. A pass there moves the calculation to **Checked**,
+   not retention. Under **What a later review looks like**, **Open historical example (seeded)** shows prepared example dates
+   and is labelled “Seeded example — not participant data”; it is computed from a fixture, not stored as learner records.
 
 The “demo example” buttons appear **only in offline mode**. They are labelled as examples, not your own work.
 
