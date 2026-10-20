@@ -4,7 +4,7 @@ Integrity table for the finish report. One row per acceptance criterion; evidenc
 
 **Status key:** ✅ Pass (automated) · 🟡 Partial · 📝 Manual — pending · ⛔ Gap (missing feature → report limitations) · 🐞 Bug (fix before pilot)
 
-Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
+Last automated run: 2026-10-14 — `npm test` 209/209 passed, `npm run typecheck` clean. `npm run test:e2e` 6/6 passed.
 
 ## High risk
 
@@ -33,7 +33,7 @@ Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck
 | --- | --- | --- | --- | --- |
 | AC01 | Text, scanned and corrupt/oversized imports; valid page refs; failures name pages | ✅ | `tests/integration/imports.test.ts` › "valid sample… correct page refs", "empty/scanned, corrupt, non-PDF, encrypted-like and oversized files produce actionable errors"; `tests/integration/scanned-import.test.ts` (all) | Check the printed-label vs PDF-index case is covered by a fixture; if not, note it. |
 | AC13 | Seeded demo data contains no participant answers; single-user/local | 📝 | — | Run `npm run demo:reset` and confirm no attempts rows. State "single-user, local only" in the report. |
-| AC14 | Export valid JSON; delete leaves no dependents; keyboard-only navigation; math plain-text equivalent | 📝 | Scripts: `npm run data:export`, `npm run data:delete-course` | Manual: keyboard-only session run, screen-reader/plain-text check on KaTeX output. |
+| AC14 | Export valid JSON; delete leaves no dependents; keyboard-only navigation; math plain-text equivalent | 🟡 | `tests/integration/course-data.test.ts` › "is valid JSON with every learner record for the course…", "removes every dependent record and upload of an imported course, including its jobs, and nothing else", "removes grading jobs for the deleted course's attempts", "an explanation exposure in a deleted course leaves no orphaned learner rows" | Export and delete pass. **Bugs fixed:** export omitted chat, approach choices, connections, activity responses and study runs; delete left job rows (no foreign key). Still manual: keyboard-only session run and a plain-text check on KaTeX output. |
 | AC15 | Section 23 demo from a clean seeded learner | 📝 | `tests/e2e/01-showcase.spec.ts`, `tests/e2e/05-continue.spec.ts` | Rehearse by hand and confirm any replay is visibly labelled. |
 
 ## Bugs and gaps found
@@ -41,4 +41,5 @@ Last automated run: 2026-10-14 — `npm test` 205/205 passed, `npm run typecheck
 | ID | Type | Description | Action |
 | --- | --- | --- | --- |
 | AC02 | ⛔ Missing feature | No prerequisite reject/regenerate flow; prerequisites are non-binding text suggestions. | Limitations section. |
+| AC14 | 🐞 Bug — fixed | Export left out chat, approach choices, learner connections, activity responses and study runs; course deletion left job rows behind. | Fixed in `src/lib/services/courseData.ts`, covered by `tests/integration/course-data.test.ts`. |
 | AC12 | 🟡 Evidence gap | Crash recovery tested by simulated lease expiry, not a real process kill. | Record a manual run or disclose. |
