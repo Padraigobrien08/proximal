@@ -21,7 +21,10 @@ test("sample PDF import: extraction, draft edit, explicit approval, page refs, r
   // Edit a title, toggle required, delete an unsupported objective, save.
   await page.getByTestId("unit-title").first().fill("Model notation (edited)");
   await page.getByTestId("skill-required").first().uncheck();
+  // Every page is in a unit, so there is no coverage warning until a unit is marked for deletion (before saving).
+  await expect(page.getByTestId("coverage-notice")).toHaveCount(0);
   await page.getByTestId("unit").nth(5).getByRole("button", { name: "Delete unsupported objective" }).click();
+  await expect(page.getByTestId("coverage-notice")).toHaveText("Authored sample lecture: PDF page 6.");
   await expect(page.getByTestId("approve")).toBeDisabled();
   await page.getByTestId("save-draft").click();
   await expect(page.getByText("Draft saved.")).toBeVisible();
