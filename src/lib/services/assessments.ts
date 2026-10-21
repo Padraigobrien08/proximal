@@ -13,8 +13,7 @@ import {
   getTopic,
   getSession,
   insertAssessment,
-  listSourcePages,
-  listSourcesForCourse,
+  pagesForRefs,
   type AssessmentRow,
 } from "../db/repo";
 import { ProviderError, type ProviderMeta } from "../llm/types";
@@ -32,13 +31,7 @@ export type AssessResult =
 
 /** Relevant approved source text for a question (page-labelled). */
 export function sourceTextFor(ctx: Pick<AppContext, "db">, courseId: string, q: QuestionPrivate): string {
-  const pages = new Set(q.sourceRefs.map((r) => r.page));
-  const parts: string[] = [];
-  for (const src of listSourcesForCourse(ctx.db, courseId)) {
-    for (const p of listSourcePages(ctx.db, src.id)) {
-      if (pages.has(p.pageNumber)) parts.push(`[page ${p.pageNumber}]\n${p.text}`);
-    }
-  }
+  const parts = pagesForRefs(ctx.db, courseId, q.sourceRefs).map((p) => `[page ${p.page}]\n${p.text}`);
   return parts.join("\n\n").slice(0, MAX_SOURCE_CHARS);
 }
 

@@ -83,7 +83,7 @@ export async function seedDemo(input: SeedInput) {
             title: u.title,
             objective: u.objective,
             approvalStatus: "approved",
-            sourceRefs: u.sourcePages.map((page) => ({ page })),
+            sourceRefs: u.sourcePages.map((page) => ({ sourceId: DEMO_SOURCE_ID, page })),
             explanation: u.explanation,
             workedExample: u.workedExample,
             position: ui,
@@ -159,7 +159,9 @@ export async function seedDemo(input: SeedInput) {
         }
       }
     }
-    for (const q of fixtures.bank.questions) {
+    for (const authored of fixtures.bank.questions) {
+      // Authored fixtures cite pages of the one demo lecture.
+      const q = { ...authored, sourceRefs: authored.sourceRefs.map((r) => ({ sourceId: DEMO_SOURCE_ID, page: r.page })) };
       const existing = getQuestion(db, q.id);
       if (!existing) {
         insertQuestion(db, q);

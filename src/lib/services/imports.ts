@@ -17,7 +17,10 @@ import {
   listActiveSessionsForCourse,
   listSkillsForTopic,
   listSkillsForUnit,
+  legacyCitationSource,
   listSourcePages,
+  listSourcesForCourse,
+  primaryLecture,
   listTopics,
   listUnits,
   replaceSourcePages,
@@ -247,7 +250,7 @@ async function extractAndDraft(
             title: u.title,
             objective: u.objective,
             approvalStatus: "draft",
-            sourceRefs: u.sourcePages.map((page) => ({ page })),
+            sourceRefs: u.sourcePages.map((page) => ({ sourceId, page })),
             position: ui,
           });
           u.skills.forEach((s, si) =>
@@ -337,10 +340,6 @@ export const draftPatchSchema = z.strictObject({
 export type DraftPatch = z.infer<typeof draftPatchSchema>;
 export type DraftPatchInput = z.input<typeof draftPatchSchema>;
 
-function coursePageCount(ctx: AppContext, courseId: string): number {
-  const counts = ctx.db.prepare("SELECT MAX(page_count) AS n FROM sources WHERE course_id = ?").get(courseId) as { n: number | null };
-  return counts.n ?? 0;
-}
 
 export function patchDraft(ctx: AppContext, courseId: string, input: DraftPatchInput) {
   const patch = draftPatchSchema.parse(input);
@@ -358,7 +357,9 @@ export function patchDraft(ctx: AppContext, courseId: string, input: DraftPatchI
     return;
   }
   if (patch.revisions.length > 0) throw new AppError("validation", "Revisions apply to approved courses; edit the draft directly.");
-  const pageCount = coursePageCount(ctx, courseId);
+  // Manually added objectives cite the course's lecture (phase A: one lecture per course).
+  const lecture = primaryLecture(ctx.db, courseId);
+  const pageCount = lecture?.pageCount ?? 0;
   ctx.db.transaction(() => {
     if (patch.courseTitle) ctx.db.prepare("UPDATE courses SET title = ? WHERE id = ?").run(patch.courseTitle, courseId);
     const topicIds = new Set(listTopics(ctx.db, courseId).map((t) => t.id));
@@ -381,7 +382,7 @@ export function patchDraft(ctx: AppContext, courseId: string, input: DraftPatchI
     }
     for (const add of patch.addUnits) {
       for (const p of add.sourcePages) {
-        if (p > pageCount) throw new AppError("validation", `Page ${p} does not exist (the PDF has ${pageCount} pages).`);
+        if (!lecture || p > pageCount) throw new AppError("validation", `Page ${p} does not exist (the PDF has ${pageCount} pages).`);
       }
       const topic = listTopics(ctx.db, courseId).find((t) => t.title === add.topicTitle);
       const topicId = topic?.id ?? insertTopic(ctx.db, { courseId, title: add.topicTitle, position: listTopics(ctx.db, courseId).length + 1 });
@@ -391,7 +392,7 @@ export function patchDraft(ctx: AppContext, courseId: string, input: DraftPatchI
         title: add.title,
         objective: add.objective,
         approvalStatus: "draft",
-        sourceRefs: add.sourcePages.map((page) => ({ page })),
+        sourceRefs: add.sourcePages.map((page) => ({ sourceId: lecture!.id, page })),
         position,
       });
       insertSkill(ctx.db, { unitId, objective: add.objective, required: true, transferRequired: true, position: 0 });
@@ -448,10 +449,16 @@ export function approveCourse(ctx: AppContext, courseId: string) {
   const topics = listTopics(ctx.db, courseId);
   const units = topics.flatMap((t) => listUnits(ctx.db, t.id));
   if (units.length === 0) throw new AppError("validation", "Add at least one objective before approving.");
-  const pageCount = coursePageCount(ctx, courseId);
+  const sources = new Map(listSourcesForCourse(ctx.db, courseId).map((src) => [src.id, src]));
+  const fallback = legacyCitationSource(ctx.db, courseId);
   for (const u of units) {
     if (!u.objective.trim()) throw new AppError("validation", `"${u.title}" has an empty objective.`);
-    for (const r of u.sourceRefs) if (r.page < 1 || r.page > pageCount) throw new AppError("validation", `"${u.title}" cites invalid page ${r.page}.`);
+    for (const r of u.sourceRefs) {
+      const src = sources.get(r.sourceId ?? fallback ?? "");
+      if (!src || src.role !== "lecture" || r.page < 1 || r.page > (src.pageCount ?? 0)) {
+        throw new AppError("validation", `"${u.title}" cites invalid page ${r.page}.`);
+      }
+    }
     if (listSkillsForUnit(ctx.db, u.id).length === 0) throw new AppError("validation", `"${u.title}" has no skills.`);
   }
   ctx.db.transaction(() => {

@@ -3,7 +3,7 @@
 // checks on it within CHAT_HELP_WINDOW_MS (see recentChatHelp, used when an answer is submitted).
 import { MS_HOUR } from "../domain/types";
 import { rankBm25 } from "../domain/retrieval";
-import { getCourse, insertExposure, listSkillsForTopic, listSourcePages, listSourcesForCourse, listTopics, newId } from "../db/repo";
+import { citationKey, getCourse, insertExposure, legacyCitationSource, listSkillsForTopic, listSourcePages, listSourcesForCourse, listTopics, newId } from "../db/repo";
 import { MAX_CHAT_QUESTION_CHARS } from "../llm/schemas";
 import { ProviderError, type ChatInput, type ChatReply } from "../llm/types";
 import type { AppContext } from "./context";
@@ -120,13 +120,14 @@ function retrieve(pages: PageDoc[], question: string, previousQuestion: string |
   return chosen;
 }
 
-/** Skills whose subtopic cites one of these pages. */
-function skillsForPages(ctx: AppContext, courseId: string, pages: { page: number }[]): string[] {
-  const wanted = new Set(pages.map((p) => p.page));
+/** Skills whose subtopic cites one of these pages (matched by source and page together). */
+function skillsForPages(ctx: AppContext, courseId: string, pages: { sourceId: string; page: number }[]): string[] {
+  const wanted = new Set(pages.map((p) => `${p.sourceId}:${p.page}`));
   if (wanted.size === 0) return [];
+  const fallback = legacyCitationSource(ctx.db, courseId);
   return listTopics(ctx.db, courseId)
     .flatMap((t) => listSkillsForTopic(ctx.db, t.id))
-    .filter((s) => s.unit.sourceRefs.some((r) => wanted.has(r.page)))
+    .filter((s) => s.unit.sourceRefs.some((r) => wanted.has(citationKey(r, fallback))))
     .map((s) => s.id);
 }
 

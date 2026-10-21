@@ -59,7 +59,13 @@ export interface ReferenceAnswer {
   numericChecks: NumericCheck[];
 }
 
+/**
+ * A citation: a page of one of the course's sources. `sourceId` is always written now; it is absent only on citations
+ * recorded before migration 015 (frozen session snapshots) and in authored fixtures. Resolve citations with
+ * pagesForRefs, which maps a missing sourceId to the course's oldest source (the one such a citation meant).
+ */
 export interface SourceRef {
+  sourceId?: string;
   page: number;
 }
 

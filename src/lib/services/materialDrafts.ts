@@ -18,7 +18,7 @@ import {
   getUnit,
   listQuestionsForSkill,
   listSkillsForTopic,
-  listSourcePages,
+  pagesForRefs,
   listSourcesForCourse,
   setUnitExplanation,
   type SkillRow,
@@ -44,15 +44,12 @@ function materialSource(ctx: AppContext, courseId: string, unit: UnitRow) {
 
 /**
  * Page chunk ids exactly as the classifier and activities name them (services/pacer.ts chunksFor): p3, or s2p3 for
- * the second extracted source when a course has several. A page is attributed to the first source that has it.
+ * the second extracted source when a course has several. A page is attributed to the source this unit cites it from.
  */
-function chunkIdFor(ctx: AppContext, courseId: string): (page: number) => string {
-  const sources = listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted");
-  if (sources.length <= 1) return (page) => `p${page}`;
+function chunkIdFor(ctx: AppContext, courseId: string, unit: UnitRow): (page: number) => string {
+  if (listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted").length <= 1) return (page) => `p${page}`;
   const owner = new Map<number, number>();
-  sources.forEach((s, i) => {
-    for (const p of listSourcePages(ctx.db, s.id)) if (!owner.has(p.pageNumber)) owner.set(p.pageNumber, i + 1);
-  });
+  for (const p of pagesForRefs(ctx.db, courseId, unit.sourceRefs, { extractedOnly: true })) if (!owner.has(p.page)) owner.set(p.page, p.sourceIndex);
   return (page) => `s${owner.get(page) ?? 1}p${page}`;
 }
 
@@ -162,7 +159,7 @@ export function approveMaterialDraft(ctx: AppContext, draftId: string) {
   const candidate = parsed.success && unit.explanation ? { ...parsed.data, explanation: null } : draft.draft;
   const checked = checkMaterialDraft(candidate, unitPages(ctx, courseId, unit), { explanationWanted: !unit.explanation });
   if (!checked.ok) throw new AppError("validation", `This draft can't be approved: ${checked.problems.join("; ")}.`);
-  const material = toActivityMaterial(checked.draft, chunkIdFor(ctx, courseId));
+  const material = toActivityMaterial(checked.draft, chunkIdFor(ctx, courseId, unit));
   const now = ctx.clock.now();
   ctx.db.transaction(() => {
     if (!decideMaterialDraft(ctx.db, draft.id, ["draft"], "approved", now)) throw new AppError("conflict", "This draft was already decided.");

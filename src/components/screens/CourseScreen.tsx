@@ -39,6 +39,7 @@ interface CourseData {
       version: number;
       approvalStatus: string;
       sourcePages: number[];
+      sourceRefs: { sourceId: string; page: number }[];
       skills: { id: string; objective: string; required: boolean; frozen: boolean; reviewAvailable: boolean }[];
     }[];
   }[];
@@ -134,9 +135,15 @@ export function CourseScreen({ courseId }: { courseId: string }) {
   if (!data) return <Loading />;
   const draft = data.course.status === "draft";
   // Pages no unit cites, counting unsaved deletions, so the reviewer decides what is left out rather than the model.
-  const citedPages = data.topics.flatMap((t) => t.units.filter((u) => !edits[u.id]?.delete).flatMap((u) => u.sourcePages));
+  const citations = data.topics.flatMap((t) => t.units.filter((u) => !edits[u.id]?.delete).flatMap((u) => u.sourceRefs));
   const uncovered = data.sources
-    .map((s) => ({ label: s.label, pages: uncoveredPages(s.pages.map((p) => p.page), citedPages) }))
+    .map((s) => ({
+      label: s.label,
+      pages: uncoveredPages(
+        s.pages.map((p) => p.page),
+        citations.filter((c) => c.sourceId === s.id).map((c) => c.page),
+      ),
+    }))
     .filter((s) => s.pages.length > 0);
 
   return (
@@ -260,20 +267,18 @@ export function CourseScreen({ courseId }: { courseId: string }) {
                   )}
                   <p className="mt-2 text-xs text-muted">
                     Source:{" "}
-                    {data.sources.map((s) =>
-                      u.sourcePages.map((p) => (
-                        <a
-                          key={`${s.id}-${p}`}
-                          className="mr-2 text-teal underline"
-                          href={`/api/sources/${s.id}#page=${p}`}
-                          target="_blank"
-                          rel="noopener"
-                          data-testid="source-page-link"
-                        >
-                          {s.label}, PDF page {p}
-                        </a>
-                      )),
-                    )}
+                    {u.sourceRefs.map((r) => (
+                      <a
+                        key={`${r.sourceId}-${r.page}`}
+                        className="mr-2 text-teal underline"
+                        href={`/api/sources/${r.sourceId}#page=${r.page}`}
+                        target="_blank"
+                        rel="noopener"
+                        data-testid="source-page-link"
+                      >
+                        {data.sources.find((s) => s.id === r.sourceId)?.label ?? "Source"}, PDF page {r.page}
+                      </a>
+                    ))}
                   </p>
                   <ul className="mt-3 space-y-2">
                     {u.skills.map((s) => {

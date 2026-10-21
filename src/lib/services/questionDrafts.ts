@@ -10,8 +10,9 @@ import {
   insertQuestion,
   listQuestionsForSkill,
   listSkillsForTopic,
-  listSourcePages,
-  listSourcesForCourse,
+  citePages,
+  legacyCitationSource,
+  pagesForRefs,
   newId,
   setQuestionStatus,
   type SkillRow,
@@ -60,12 +61,7 @@ export function ownedSkill(ctx: AppContext, skillId: string): Owned {
 }
 
 export function unitPages(ctx: AppContext, courseId: string, unit: UnitRow): { page: number; text: string }[] {
-  const wanted = new Set(unit.sourceRefs.map((r) => r.page));
-  const out: { page: number; text: string }[] = [];
-  for (const src of listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted")) {
-    for (const p of listSourcePages(ctx.db, src.id)) if (wanted.has(p.pageNumber)) out.push({ page: p.pageNumber, text: p.text });
-  }
-  return out.sort((a, b) => a.page - b.page);
+  return pagesForRefs(ctx.db, courseId, unit.sourceRefs, { extractedOnly: true }).map((p) => ({ page: p.page, text: p.text }));
 }
 
 /** The unit's pages, if there are any and they fit one drafting request. */
@@ -338,7 +334,7 @@ export function approveQuestionDraft(ctx: AppContext, draftId: string, use: "che
       reference: { summary: q.referenceSummary, numericChecks: q.numericChecks },
       rubric: { version: 1, criteria: q.criteria },
       hints: q.hints,
-      sourceRefs: q.sourcePages.map((page) => ({ page })),
+      sourceRefs: citePages(owned.unit.sourceRefs, q.sourcePages, legacyCitationSource(ctx.db, owned.courseId)),
       revealSkillIds: [owned.skill.id],
       status: reviewed ? "owner_reviewed" : "authored_fixture",
       examples: q.examples.map((e) => ({ ...e, judgements: [], possibleMisconception: null })),
