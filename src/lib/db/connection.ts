@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { readEnvSafe } from "../env-safe";
-import { pendingMigrations } from "./backup";
+import { pendingMigrations, pruneBackups } from "./backup";
 import { MIGRATIONS_DIR, runMigrations } from "./migrate";
 
 export type DB = Database.Database;
@@ -58,4 +58,5 @@ function backupBeforeMigrate(db: DB, file: string) {
   const dir = path.join(path.dirname(file), "backups", `${new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-")}-pre-migrate`);
   mkdirSync(dir, { recursive: true });
   copyFileSync(file, path.join(dir, "proximal.db"));
+  pruneBackups(path.dirname(dir));
 }
