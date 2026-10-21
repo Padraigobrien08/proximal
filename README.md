@@ -64,11 +64,11 @@ The “demo example” buttons appear **only in offline mode**. They are labelle
 | `npm run content:review -- --list` / `-- --question S5-A --status owner_reviewed --by "Name"` | Lists question review status, or records that a named person reviewed a question. |
 | `npm run questions:import -- --file bank.json [--course <id>]` | Attaches an owner-authored question bank (same schema as `fixtures/questions.json`) to existing skills. Inserted as `authored_fixture`. |
 | `npm run data:export -- --course <id> [--out f.json] [--include-reference-answers]` | JSON export of the curriculum, reviewed questions and every learner record (sessions, attempts, exposures, assessments, review states, chat, approach choices, connections, activity responses, study runs). Never includes env vars, keys or unreviewed drafts. Reference answers are omitted unless the flag is given. |
-| `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, every dependent record (including its queued or finished jobs) and its uploaded files. |
+| `npm run data:delete-course -- --course <id> --confirm <id>` | Deletes a course, every dependent record (including its queued or finished jobs) and its uploaded files, then names any backups that still contain it. |
 | `npm run doctor [-- --offline]` | Health check: Node version, provider configuration per job, where the API key comes from (never the key), model access via free metadata lookups, limits, database integrity and schema, backups, and whether the running server matches `.env`. Exits non-zero on a problem. |
 | `npm run smoke:live -- --yes [--only assess,tutor,chat,curriculum,parts,ocr,pacer,questions,material,feedback]` | One real call per provider job (19 paid calls in total) through the app's services and validators, on a temporary copy of the demo. Learner data is never touched. Prints PASS/FAIL per job and exits non-zero on any failure. Refuses to run without `--yes`. |
 | `npm run usage [-- --days 7] [--prices f.json] [--write-prices]` | Summary of live provider calls by day, job and model: calls, errors, blocked calls, input/output tokens, average latency and estimated cost (from your price list), plus totals and rolling 24 h usage against the caps. `--write-prices` creates the price-list template. |
-| `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, keeping the newest 10. |
+| `npm run db:backup [-- --label x] [-- --keep 10]` | Consistent online backup (SQLite backup API, safe while the server runs) of the database and uploaded PDFs into `data/backups/<timestamp>/`, then applies backup retention (see Backups below). |
 
 All scripts are local developer utilities, not browser endpoints. They load `.env` if it exists; variables already set in the
 environment take precedence.
@@ -182,6 +182,13 @@ scripts/              migrate, seed, demo reset, eval, content review, question 
 - **Backups.** `npm run db:backup` before risky changes. Schema migrations back up automatically when the database has data.
   To restore: stop the server, copy `proximal.db` (and `uploads/`) from `data/backups/<timestamp>/` into `data/`, and start
   the server again.
+  - **What they hold:** each backup is a full copy of the database (every course, its page text and all learner records);
+    `db:backup` copies also include the uploaded PDFs. Pre-migration copies hold the database only.
+  - **Retention:** the newest 10 backups are kept and any older than 30 days are deleted, but the newest backup is always
+    kept. Retention runs when a backup is taken (`db:backup` or a migration) and when a course is deleted, not on a
+    timer, so an old backup lasts until one of those happens.
+  - **Deleted courses:** `data:delete-course` does not edit backups. It lists the backups that still contain the course; they
+    age out under the rule above, or you can delete those folders by hand (each also holds everything else).
 
 ## Workspace and recommendations
 

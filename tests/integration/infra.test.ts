@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { readEnv } from "../../src/lib/env";
-import { backupData, pendingMigrations } from "../../src/lib/db/backup";
+import { backupData, backupsContainingCourse, pendingMigrations, pruneBackups } from "../../src/lib/db/backup";
+import { deleteCourseData } from "../../src/lib/services/courseData";
 import { databasePath, openDatabase } from "../../src/lib/db/connection";
 import { MIGRATIONS_DIR, runMigrations } from "../../src/lib/db/migrate";
 import { MeteredProvider, usageSince } from "../../src/lib/llm/metered";
@@ -167,6 +168,55 @@ describe("backups", () => {
     const third = await backupData(db, dir, { keep: 2 });
     expect(readdirSync(path.join(dir, "backups"))).toHaveLength(2);
     expect(third.pruned).toHaveLength(1);
+    db.close();
+  });
+
+  it("retention: keeps the newest 10, deletes backups older than 30 days, and never deletes the newest", () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "proximal-backup-"));
+    const root = path.join(dir, "backups");
+    const now = Date.UTC(2026, 9, 21, 12, 0, 0);
+    const name = (daysAgo: number, label = "") => {
+      const d = new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+      return d.replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-") + label;
+    };
+    const make = (n: string) => mkdirSync(path.join(root, n), { recursive: true });
+
+    // Count: 12 recent backups (days 0-11, one a pre-migration copy) keep the newest 10.
+    const recent = Array.from({ length: 12 }, (_, i) => name(i, i === 3 ? "-pre-migrate" : ""));
+    recent.forEach(make);
+    writeFileSync(path.join(root, "notes.txt"), "not a backup");
+    expect(pruneBackups(root, { now }).sort()).toEqual([name(10), name(11)].sort());
+    expect(readdirSync(root).filter((d) => d !== "notes.txt").sort()).toEqual(recent.slice(0, 10).sort());
+    expect(existsSync(path.join(root, "notes.txt"))).toBe(true);
+
+    // Age: with only 5 backups the count limit removes nothing, but the two older than 30 days go.
+    rmSync(root, { recursive: true, force: true });
+    const young = [name(0), name(5), name(29)];
+    const old = [name(31), name(45)];
+    [...young, ...old].forEach(make);
+    expect(pruneBackups(root, { now }).sort()).toEqual(old.sort());
+    expect(readdirSync(root).sort()).toEqual(young.sort());
+
+    // A lone backup is kept however old it is, so the data directory always has one.
+    rmSync(root, { recursive: true, force: true });
+    make(name(90));
+    expect(pruneBackups(root, { now })).toEqual([]);
+    expect(readdirSync(root)).toEqual([name(90)]);
+  });
+
+  it("names the backups that still hold a deleted course", async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "proximal-backup-"));
+    const db = openDatabase(databasePath(dir));
+    runMigrations(db);
+    db.prepare("INSERT INTO courses (id, title, is_demo, status, created_at) VALUES ('gone', 'Deleted course', 0, 'approved', 1)").run();
+    const before = await backupData(db, dir, { label: "before" });
+    deleteCourseData(db, dir, "gone");
+    expect(db.prepare("SELECT COUNT(*) AS n FROM courses WHERE id = 'gone'").get()).toEqual({ n: 0 });
+    const after = await backupData(db, dir, { label: "after" });
+    const held = backupsContainingCourse(dir, "gone").map((b) => b.name);
+    expect(held).toEqual([path.basename(before.dir)]);
+    expect(held).not.toContain(path.basename(after.dir));
+    expect(backupsContainingCourse(dir, "never-existed")).toEqual([]);
     db.close();
   });
 
