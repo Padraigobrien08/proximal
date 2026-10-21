@@ -12,7 +12,7 @@ import {
   listExposures,
   listQuestionsForSkill,
   listSkillsForTopic,
-  listSourcePages,
+  pagesForRefs,
   listSourcesForCourse,
   type SkillRow,
   type UnitRow,
@@ -83,21 +83,14 @@ type TopicSkill = SkillRow & { unit: UnitRow };
 
 /** Approved source chunks for a unit's pages, plus authored auxiliary contexts. Whitespace-normalised. */
 function chunksFor(ctx: AppContext, courseId: string, unit: UnitRow, aux: { chunkId: string; kind: PacerChunk["kind"]; label: string; text: string }[]): PacerChunk[] {
-  const sources = listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted");
-  const pages = new Set(unit.sourceRefs.map((r) => r.page));
-  const out: PacerChunk[] = [];
-  sources.forEach((src, i) => {
-    for (const p of listSourcePages(ctx.db, src.id)) {
-      if (!pages.has(p.pageNumber)) continue;
-      out.push({
-        chunkId: sources.length > 1 ? `s${i + 1}p${p.pageNumber}` : `p${p.pageNumber}`,
-        kind: "page",
-        label: `${src.label ?? src.originalName}, PDF page ${p.pageNumber}${p.lowTextWarning ? " (low-text warning: extraction may be unreliable)" : ""}`,
-        page: p.pageNumber,
-        text: normaliseWs(p.text),
-      });
-    }
-  });
+  const several = listSourcesForCourse(ctx.db, courseId).filter((s) => s.status === "extracted").length > 1;
+  const out: PacerChunk[] = pagesForRefs(ctx.db, courseId, unit.sourceRefs, { extractedOnly: true }).map((p) => ({
+    chunkId: several ? `s${p.sourceIndex}p${p.page}` : `p${p.page}`,
+    kind: "page",
+    label: `${p.label}, PDF page ${p.page}${p.lowTextWarning ? " (low-text warning: extraction may be unreliable)" : ""}`,
+    page: p.page,
+    text: normaliseWs(p.text),
+  }));
   for (const a of aux) out.push({ chunkId: a.chunkId, kind: a.kind, label: a.label, page: null, text: normaliseWs(a.text) });
   return out;
 }
@@ -746,12 +739,7 @@ export async function requestResponseFeedback(ctx: AppContext, sessionId: string
     insertExposure(ctx.db, { sessionId, kind: "feedback", affectedSkillIds: [skill.id], contentRef: ref, recordedAt: ctx.clock.now() });
   })();
 
-  const wanted = new Set(unit.sourceRefs.map((r) => r.page));
-  const sourcePages = listSourcesForCourse(ctx.db, courseId)
-    .filter((s) => s.status === "extracted")
-    .flatMap((s) => listSourcePages(ctx.db, s.id))
-    .filter((p) => wanted.has(p.pageNumber))
-    .map((p) => ({ page: p.pageNumber, text: p.text }));
+  const sourcePages = pagesForRefs(ctx.db, courseId, unit.sourceRefs, { extractedOnly: true }).map((p) => ({ page: p.page, text: p.text }));
   let res;
   try {
     res = await ctx.provider.activityFeedback({

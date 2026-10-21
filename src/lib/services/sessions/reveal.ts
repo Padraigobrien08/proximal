@@ -1,5 +1,5 @@
 // Sessions: hints, sources, solutions and explanations, each recorded as an exposure before it is returned.
-import type { ExposureKind } from "../../domain/types";
+import type { ExposureKind, SourceRef } from "../../domain/types";
 import {
   getAssessmentForAttempt,
   getSessionQuestion,
@@ -9,8 +9,7 @@ import {
   insertExposure,
   listSessionQuestions,
   listSkillsForTopic,
-  listSourcePages,
-  listSourcesForCourse,
+  pagesForRefs,
 } from "../../db/repo";
 import { ProviderError } from "../../llm/types";
 import type { AppContext } from "../context";
@@ -79,7 +78,7 @@ export async function reveal(ctx: AppContext, sessionId: string, input: RevealIn
       };
     }
     try {
-      const pages = unitSourcePages(ctx, topic.courseId, unit.sourceRefs.map((r) => r.page));
+      const pages = unitSourcePages(ctx, topic.courseId, unit.sourceRefs);
       const res = await ctx.provider.tutor({ objective: unit.objective, sourcePages: pages, gap, request: gap ? "worked_example" : "explanation" });
       return {
         exposureId: exposure.id,
@@ -135,19 +134,16 @@ export async function reveal(ctx: AppContext, sessionId: string, input: RevealIn
   if (input.kind === "solution") {
     return { exposureId: exposure.id, kind: input.kind, content: { summary: sq.frozen.reference.summary } };
   }
-  const pages = unitSourcePages(ctx, topic.courseId, sq.frozen.sourceRefs.map((r) => r.page));
+  const pages = unitSourcePages(ctx, topic.courseId, sq.frozen.sourceRefs);
   return { exposureId: exposure.id, kind: input.kind, content: { pages } };
 }
 
-function unitSourcePages(ctx: AppContext, courseId: string, pageNumbers: number[]) {
-  const wanted = new Set(pageNumbers);
-  const out: { sourceId: string; label: string; page: number; text: string; lowTextWarning: boolean }[] = [];
-  for (const src of listSourcesForCourse(ctx.db, courseId)) {
-    for (const p of listSourcePages(ctx.db, src.id)) {
-      if (wanted.has(p.pageNumber)) {
-        out.push({ sourceId: src.id, label: src.label ?? src.originalName, page: p.pageNumber, text: p.text, lowTextWarning: p.lowTextWarning });
-      }
-    }
-  }
-  return out;
+function unitSourcePages(ctx: AppContext, courseId: string, refs: SourceRef[]) {
+  return pagesForRefs(ctx.db, courseId, refs).map((p) => ({
+    sourceId: p.sourceId,
+    label: p.label,
+    page: p.page,
+    text: p.text,
+    lowTextWarning: p.lowTextWarning,
+  }));
 }

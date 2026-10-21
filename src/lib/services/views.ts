@@ -19,6 +19,7 @@ import {
   usableForChecks,
   listSkillsForTopic,
   listSourcePages,
+  legacyCitationSource,
   listSourcesForCourse,
   listTopics,
   listUnits,
@@ -478,6 +479,7 @@ export type TopicView = ReturnType<typeof getTopicView>;
 export function getCourseView(ctx: AppContext, courseId: string) {
   const course = getCourse(ctx.db, courseId);
   if (!course) throw notFound("Course");
+  const fallback = legacyCitationSource(ctx.db, course.id);
   const sources = listSourcesForCourse(ctx.db, course.id).map((s) => ({
     id: s.id,
     label: s.label ?? s.originalName,
@@ -517,6 +519,7 @@ export function getCourseView(ctx: AppContext, courseId: string) {
         version: u.version,
         approvalStatus: u.approvalStatus,
         sourcePages: u.sourceRefs.map((r) => r.page),
+        sourceRefs: u.sourceRefs.map((r) => ({ sourceId: r.sourceId ?? fallback ?? "", page: r.page })),
         skills: listSkillsForUnit(ctx.db, u.id).map((s) => ({
           id: s.id,
           objective: s.objective,
