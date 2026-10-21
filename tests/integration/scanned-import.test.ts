@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { existsSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { listSourcePages } from "../../src/lib/db/repo";
@@ -6,6 +8,7 @@ import { createMockProvider } from "../../src/lib/llm/factory";
 import { ProviderError, type CurriculumInput, type LearningProvider, type TranscribeInput } from "../../src/lib/llm/types";
 import { renderPagesAsJpeg, RENDER_MAX_EDGE } from "../../src/lib/pdf/render";
 import { importPdf } from "../../src/lib/services/imports";
+import { DEMO_SOURCE_FILE } from "../../src/lib/services/seed";
 import { createTestContext } from "../helpers";
 
 let cleanup: (() => void) | null = null;
@@ -126,6 +129,8 @@ describe("importing scanned PDFs", () => {
     expect(curriculumCalls).toHaveLength(0);
     expect(ctx.db.prepare("SELECT status FROM sources WHERE original_name = 'scan.pdf'").get()).toEqual({ status: "failed" });
     expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM courses WHERE is_demo = 0").get()).toEqual({ n: 0 });
+    // The failed upload's file is removed; the sources row keeps the error for display.
+    expect(existsSync(path.join(dir, "uploads")) ? readdirSync(path.join(dir, "uploads")) : []).toEqual([DEMO_SOURCE_FILE]);
   });
 
   it("offline mode explains that reading page images needs a live provider", async () => {

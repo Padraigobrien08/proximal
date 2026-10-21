@@ -8,6 +8,7 @@ import type { ProviderInfo } from "../ProviderBadge";
 import { notifyDataChanged } from "../dataEvents";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { Level, LevelRollup } from "@/lib/domain/levels";
+import { formatPageRanges, uncoveredPages } from "@/lib/content/coverage";
 import { DuePill, HowLevelsWork, LevelBar, LevelLegend, RollupSummary, rollupSentence } from "../levels";
 import { AskButton } from "../AskButton";
 import { ProviderNotice, useContinue } from "../workspace";
@@ -132,6 +133,11 @@ export function CourseScreen({ courseId }: { courseId: string }) {
   if (error) return <Notice tone="error">{error}</Notice>;
   if (!data) return <Loading />;
   const draft = data.course.status === "draft";
+  // Pages no unit cites, counting unsaved deletions, so the reviewer decides what is left out rather than the model.
+  const citedPages = data.topics.flatMap((t) => t.units.filter((u) => !edits[u.id]?.delete).flatMap((u) => u.sourcePages));
+  const uncovered = data.sources
+    .map((s) => ({ label: s.label, pages: uncoveredPages(s.pages.map((p) => p.page), citedPages) }))
+    .filter((s) => s.pages.length > 0);
 
   return (
     <div className="space-y-6">
@@ -182,6 +188,16 @@ export function CourseScreen({ courseId }: { courseId: string }) {
           Generated or fixture objectives are a draft. Edit titles and objectives, toggle whether each skill is required, and delete
           anything the source does not support. Approval is explicit; after approval objectives are frozen (a later change would be a new
           version with fresh evidence).
+        </Notice>
+      )}
+
+      {draft && uncovered.length > 0 && (
+        <Notice tone="warn" title="Pages not in any unit">
+          <span data-testid="coverage-notice">
+            {uncovered.map((s) => `${s.label}: PDF ${s.pages.length === 1 ? "page" : "pages"} ${formatPageRanges(s.pages)}`).join("; ")}.
+          </span>{" "}
+          Nothing on these pages will be taught or checked. That is right for admin or in-class activity slides; if any of them hold
+          content you need, add an objective below. Their text is under Sources.
         </Notice>
       )}
 

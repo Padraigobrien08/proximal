@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { SAMPLE_PDF_PATH } from "../../src/lib/content/fixtures";
 import { approveCourse, importPdf, patchDraft } from "../../src/lib/services/imports";
 import { getCourseView } from "../../src/lib/services/views";
 import { startSession } from "../../src/lib/services/sessions";
 import { MAX_PDF_BYTES } from "../../src/lib/pdf/extract";
+import { DEMO_SOURCE_FILE } from "../../src/lib/services/seed";
 import { createTestContext } from "../helpers";
 
 let cleanup: (() => void) | null = null;
@@ -138,5 +140,12 @@ describe("T18: PDF import", () => {
     const failed = ctx.db.prepare("SELECT status, error FROM sources WHERE status = 'failed'").all() as { status: string; error: string }[];
     expect(failed.length).toBeGreaterThanOrEqual(3);
     expect(failed.every((f) => f.error.length > 0)).toBe(true);
+    // ...but their uploaded files are not kept: only the seeded demo lecture is in uploads.
+    const uploads = () => (existsSync(path.join(dir, "uploads")) ? readdirSync(path.join(dir, "uploads")).sort() : []);
+    expect(uploads()).toEqual([DEMO_SOURCE_FILE]);
+    // A successful import keeps exactly its own file.
+    const ok = await importPdf(ctx, dir, { name: "lecture.pdf", bytes: readFileSync(SAMPLE_PDF_PATH) });
+    const stored = ctx.db.prepare("SELECT stored_path FROM sources WHERE id = ?").get(ok.sourceId) as { stored_path: string };
+    expect(uploads()).toEqual([DEMO_SOURCE_FILE, stored.stored_path].sort());
   });
 });

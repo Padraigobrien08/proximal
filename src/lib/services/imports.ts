@@ -1,6 +1,6 @@
 // Bounded synchronous PDF import (long documents drafted in parts), draft curriculum editing and explicit approval.
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -127,7 +127,23 @@ export async function importPdf(
   const storedName = `${randomBytes(16).toString("hex")}.pdf`;
   const storedPath = path.join(uploadsDir, storedName);
   writeFileSync(storedPath, file.bytes, { flag: "wx" });
+  try {
+    return await extractAndDraft(ctx, file, { sha256, originalName, storedName });
+  } catch (err) {
+    // A failed import keeps its sources row (status and error) but not the uploaded file. A source that reached
+    // "extracted" belongs to a course, so its file is never removed here.
+    const row = ctx.db.prepare("SELECT status FROM sources WHERE stored_path = ?").get(storedName) as { status: string } | undefined;
+    if (row?.status !== "extracted") rmSync(storedPath, { force: true });
+    throw err;
+  }
+}
 
+async function extractAndDraft(
+  ctx: AppContext,
+  file: { name: string; bytes: Uint8Array },
+  doc: { sha256: string; originalName: string; storedName: string },
+): Promise<ImportResult> {
+  const { sha256, originalName, storedName } = doc;
   const now = ctx.clock.now();
   const sourceId = insertSource(ctx.db, {
     courseId: null,
